@@ -1,0 +1,49 @@
+# Configuration for multi-node k3s deployment
+global:
+  singleNode: false
+  storageClass: "longhorn" # or "nfs-client"
+  domain: "homelab.local"
+
+# Replica counts for high availability
+replicas:
+  argocd:
+    server: 2
+    repoServer: 2
+    applicationController: 1
+  prometheus: 2
+  grafana: 2
+  gitea: 2
+  django: 3
+  redis: 3
+
+# Resource limits for multi-node
+resources:
+  argocd:
+    server:
+      limits: { cpu: "1000m", memory: "1Gi" }
+      requests: { cpu: "500m", memory: "512Mi" }
+  prometheus:
+    limits: { cpu: "2000m", memory: "4Gi" }
+    requests: { cpu: "1000m", memory: "2Gi" }
+  grafana:
+    limits: { cpu: "500m", memory: "512Mi" }
+    requests: { cpu: "250m", memory: "256Mi" }
+  gitea:
+    limits: { cpu: "1000m", memory: "1Gi" }
+    requests: { cpu: "500m", memory: "512Mi" }
+  django:
+    limits: { cpu: "1000m", memory: "1Gi" }
+    requests: { cpu: "500m", memory: "512Mi" }
+
+# Storage sizes
+storage:
+  prometheus: "50Gi"
+  grafana: "5Gi"
+  gitea: "50Gi"
+  postgresql: "20Gi"
+  redis: "5Gi"
+
+# Anti-affinity rules for multi-node
+affinity:
+  enabled: true
+  podAntiAffinity: "soft" # or "hard"

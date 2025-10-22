@@ -1,0 +1,44 @@
+# Configuration for single-node k3s deployment
+global:
+  singleNode: true
+  storageClass: "local-path"
+  domain: "homelab.local"
+
+# Replica counts for single-node
+replicas:
+  argocd:
+    server: 1
+    repoServer: 1
+    applicationController: 1
+  prometheus: 1
+  grafana: 1
+  gitea: 1
+  django: 1
+  redis: 1
+
+# Resource limits for single-node
+resources:
+  argocd:
+    server:
+      limits: { cpu: "500m", memory: "512Mi" }
+      requests: { cpu: "250m", memory: "256Mi" }
+  prometheus:
+    limits: { cpu: "1000m", memory: "2Gi" }
+    requests: { cpu: "500m", memory: "1Gi" }
+  grafana:
+    limits: { cpu: "200m", memory: "200Mi" }
+    requests: { cpu: "100m", memory: "128Mi" }
+  gitea:
+    limits: { cpu: "500m", memory: "512Mi" }
+    requests: { cpu: "250m", memory: "256Mi" }
+  django:
+    limits: { cpu: "500m", memory: "512Mi" }
+    requests: { cpu: "250m", memory: "256Mi" }
+
+# Storage sizes
+storage:
+  prometheus: "10Gi"
+  grafana: "1Gi"
+  gitea: "10Gi"
+  postgresql: "5Gi"
+  redis: "1Gi"

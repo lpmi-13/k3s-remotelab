@@ -1,0 +1,60 @@
+# Kubernetes secrets and sensitive files
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+secrets/
+private/
+
+# Environment and configuration files
+.env
+.env.local
+.env.production
+config.local.*
+values-production.yaml
+
+# Logs and temporary files
+*.log
+*.tmp
+tmp/
+logs/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Local development overrides
+docker-compose.override.yml
+kustomization.local.yaml
+values-local.yaml
+
+# ArgoCD local state (if any)
+.argocd/
+
+# Helm charts dependencies
+charts/*/charts/
+*.tgz
+
+# Local container images and build artifacts
+*.tar
+*.tar.gz
+build/
+dist/

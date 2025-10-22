@@ -1,0 +1,107 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: homelab-ingress
+  namespace: applications
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: "selfsigned-issuer"
+    traefik.ingress.kubernetes.io/router.middlewares: applications-strip-gitea@kubernetescrd,applications-strip-django@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - localhost
+    secretName: homelab-tls
+  rules:
+  - http:
+      paths:
+      - path: /gitea
+        pathType: Prefix
+        backend:
+          service:
+            name: gitea
+            port:
+              number: 3000
+      - path: /django
+        pathType: Prefix
+        backend:
+          service:
+            name: django
+            port:
+              number: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: monitoring-ingress
+  namespace: monitoring
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    cert-manager.io/cluster-issuer: "selfsigned-issuer"
+    traefik.ingress.kubernetes.io/router.middlewares: monitoring-strip-prometheus@kubernetescrd,monitoring-strip-grafana@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - localhost
+    secretName: monitoring-tls
+  rules:
+  - http:
+      paths:
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 3000
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-gitea
+  namespace: applications
+spec:
+  stripPrefix:
+    prefixes:
+      - /gitea
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-django
+  namespace: applications
+spec:
+  stripPrefix:
+    prefixes:
+      - /django
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-prometheus
+  namespace: monitoring
+spec:
+  stripPrefix:
+    prefixes:
+      - /prometheus
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-grafana
+  namespace: monitoring
+spec:
+  stripPrefix:
+    prefixes:
+      - /grafana
