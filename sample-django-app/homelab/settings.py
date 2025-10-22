@@ -12,6 +12,10 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = ['*']
 
+# Support for serving from subpath /django
+FORCE_SCRIPT_NAME = '/django'
+USE_X_FORWARDED_HOST = True
+
 # Application definition
 INSTALLED_APPS = [
     'django.contrib.admin',

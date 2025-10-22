@@ -1,12 +1,36 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
+  name: gitea-registry-ingress
+  namespace: applications
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+  - hosts:
+    - localhost
+    secretName: homelab-tls
+  rules:
+  - http:
+      paths:
+      - path: /v2
+        pathType: Prefix
+        backend:
+          service:
+            name: gitea
+            port:
+              number: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
   name: homelab-ingress
   namespace: applications
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    cert-manager.io/cluster-issuer: "selfsigned-issuer"
     traefik.ingress.kubernetes.io/router.middlewares: applications-strip-gitea@kubernetescrd,applications-strip-django@kubernetescrd
 spec:
   ingressClassName: traefik
@@ -40,7 +64,6 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    cert-manager.io/cluster-issuer: "selfsigned-issuer"
     traefik.ingress.kubernetes.io/router.middlewares: monitoring-strip-prometheus@kubernetescrd,monitoring-strip-grafana@kubernetescrd
 spec:
   ingressClassName: traefik

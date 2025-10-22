@@ -6,11 +6,12 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
-    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
     traefik.ingress.kubernetes.io/router.middlewares: argocd-strip-argocd@kubernetescrd
 spec:
   ingressClassName: traefik
+  tls:
+  - hosts:
+    - localhost
   rules:
   - http:
       paths:
@@ -20,10 +21,7 @@ spec:
           service:
             name: argocd-server
             port:
-              number: 443
-  tls:
-  - hosts:
-    - localhost
+              number: 80
 ---
 apiVersion: traefik.containo.us/v1alpha1
 kind: Middleware

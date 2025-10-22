@@ -6,7 +6,7 @@ metadata:
   labels:
     app: django
   annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea.homelab.local/homelab/django-app:latest
+    argocd-image-updater.argoproj.io/image-list: django=localhost/homelab/django-app:latest
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: main
 spec:
@@ -25,7 +25,8 @@ spec:
     spec:
       containers:
       - name: django
-        image: gitea.homelab.local/homelab/django-app:latest
+        image: localhost/homelab/django-app:latest
+        imagePullPolicy: IfNotPresent
         env:
         - name: REDIS_URL
           value: "redis://redis:6379/1"

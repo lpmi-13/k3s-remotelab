@@ -1,0 +1,103 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-init-user
+  namespace: applications
+spec:
+  # Don't retry if it fails - user might already exist
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 300  # Clean up job after 5 minutes
+  template:
+    metadata:
+      labels:
+        app: gitea-init
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      restartPolicy: Never
+      # Run as git user (UID 1000 in gitea image) to avoid "running as root" error
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      # Wait for Gitea to be ready
+      initContainers:
+      - name: wait-for-gitea
+        image: busybox:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for Gitea to be ready..."
+          attempts=0
+          max_attempts=60
+          until wget -q --spider http://gitea:3000/api/healthz 2>/dev/null; do
+            attempts=$((attempts + 1))
+            if [ $attempts -ge $max_attempts ]; then
+              echo "Gitea failed to become ready after $max_attempts attempts"
+              exit 1
+            fi
+            echo "Gitea not ready yet, waiting... (attempt $attempts/$max_attempts)"
+            sleep 5
+          done
+          echo "Gitea health endpoint is responding!"
+          # Additional wait to ensure Gitea is fully initialized and not in install mode
+          echo "Waiting additional time for Gitea to fully initialize..."
+          sleep 15
+      containers:
+      - name: create-admin
+        image: gitea/gitea:1.20
+        command:
+        - sh
+        - -c
+        - |
+          echo "Creating Gitea admin user..."
+
+          # Wait a moment to ensure Gitea is fully ready
+          sleep 5
+
+          # Read database password from mounted secret
+          DB_PASSWORD=$(cat /secrets/db-password)
+
+          # Use the same database config as main Gitea deployment
+          export GITEA__database__DB_TYPE=postgres
+          export GITEA__database__HOST=postgresql:5432
+          export GITEA__database__NAME=gitea
+          export GITEA__database__USER=gitea
+          export GITEA__database__PASSWD="$DB_PASSWORD"
+
+          # Set Gitea work paths to match main deployment
+          export GITEA_WORK_DIR=/data/gitea
+          export GITEA_CUSTOM=/data/gitea
+
+          # Run gitea CLI to create admin user
+          # The command will fail if user already exists, which is fine
+          echo "Running: gitea admin user create..."
+          gitea admin user create \
+            --username homelab \
+            --password homelab \
+            --email homelab@localhost.local \
+            --admin \
+            --must-change-password=false \
+            --config /data/gitea/conf/app.ini 2>&1 || {
+              echo "User creation failed or user already exists (this is OK)"
+              exit 0
+            }
+
+          echo "Admin user setup complete!"
+        volumeMounts:
+        - name: db-password
+          mountPath: /secrets
+          readOnly: true
+        - name: gitea-data
+          mountPath: /data
+      volumes:
+      - name: db-password
+        secret:
+          secretName: postgresql-secret
+          items:
+          - key: password
+            path: db-password
+      - name: gitea-data
+        persistentVolumeClaim:
+          claimName: gitea-pvc

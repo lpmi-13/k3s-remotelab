@@ -4,3 +4,5 @@ metadata:
   name: argocd
   labels:
     name: argocd
+  annotations:
+    linkerd.io/inject: enabled

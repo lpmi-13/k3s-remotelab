@@ -46,6 +46,16 @@ spec:
           value: "true"
         - name: GITEA__metrics__TOKEN
           value: "prometheus"
+        - name: GITEA__packages__ENABLED
+          value: "true"
+        - name: GITEA__packages__CHUNKED_UPLOAD_PATH
+          value: "/data/packages/tmp"
+        - name: GITEA__security__INSTALL_LOCK
+          value: "true"
+        - name: GITEA__security__SECRET_KEY
+          value: "changeme-this-is-insecure-homelab-secret-key-change-in-production"
+        - name: GITEA__security__INTERNAL_TOKEN
+          value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYmYiOjE2OTg4NjQwMDB9.KmW7_bF9C8F9F8F9F8F9F8F9F8F9F8F9F8F9F8F9F8F"
         ports:
         - containerPort: 3000
           name: http
