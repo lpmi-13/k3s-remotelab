@@ -1,0 +1,81 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: act-runner-pvc
+  namespace: applications
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: runner-secret
+  namespace: applications
+type: Opaque
+stringData:
+  # This token will be created by the gitea-init-runner job
+  # The format is: glrt-<random-string>
+  # For now, we use a placeholder that will be updated by the init job
+  token: "placeholder-will-be-updated-by-init-job"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: act-runner
+  namespace: applications
+  labels:
+    app: act-runner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: act-runner
+  template:
+    metadata:
+      labels:
+        app: act-runner
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+      - name: runner
+        image: gitea/act_runner:nightly-dind-rootless
+        env:
+        - name: GITEA_INSTANCE_URL
+          value: "http://gitea:3000"
+        - name: GITEA_RUNNER_REGISTRATION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: runner-secret
+              key: token
+        - name: GITEA_RUNNER_NAME
+          value: "k3s-runner"
+        - name: DOCKER_HOST
+          value: "tcp://localhost:2376"
+        - name: DOCKER_CERT_PATH
+          value: "/certs/client"
+        - name: DOCKER_TLS_VERIFY
+          value: "1"
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: runner-data
+          mountPath: /data
+        resources:
+          limits:
+            cpu: 2
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+      volumes:
+      - name: runner-data
+        persistentVolumeClaim:
+          claimName: act-runner-pvc

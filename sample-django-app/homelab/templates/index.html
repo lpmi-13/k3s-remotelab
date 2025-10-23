@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Homelab Django Application</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 1.1em;
+        }
+
+        .version-info {
+            background: #f7f7f7;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-radius: 4px;
+        }
+
+        .version-info h2 {
+            color: #333;
+            font-size: 1.3em;
+            margin-bottom: 15px;
+        }
+
+        .version-detail {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .version-detail:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+
+        .version-detail .label {
+            color: #666;
+            font-weight: 600;
+        }
+
+        .version-detail .value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+            background: #fff;
+            padding: 2px 8px;
+            border-radius: 3px;
+        }
+
+        .api-endpoints {
+            margin-top: 30px;
+        }
+
+        .api-endpoints h2 {
+            color: #333;
+            font-size: 1.3em;
+            margin-bottom: 15px;
+        }
+
+        .endpoint-list {
+            list-style: none;
+        }
+
+        .endpoint-item {
+            margin-bottom: 10px;
+        }
+
+        .endpoint-item a {
+            display: block;
+            padding: 15px 20px;
+            background: #f7f7f7;
+            color: #667eea;
+            text-decoration: none;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+        }
+
+        .endpoint-item a:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+            transform: translateX(5px);
+        }
+
+        .endpoint-path {
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+        }
+
+        .endpoint-description {
+            font-size: 0.9em;
+            margin-top: 5px;
+            opacity: 0.8;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            color: #999;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1.8em;
+            }
+
+            .container {
+                padding: 25px;
+            }
+
+            .version-detail {
+                flex-direction: column;
+            }
+
+            .version-detail .value {
+                margin-top: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Homelab Django Application</h1>
+        <p class="subtitle">Welcome to the K3s Homelab Demo</p>
+
+        <div class="version-info">
+            <h2>Version Information</h2>
+            <div class="version-detail">
+                <span class="label">Git Commit:</span>
+                <span class="value">{{ commit_sha }}</span>
+            </div>
+            <div class="version-detail">
+                <span class="label">Build Date:</span>
+                <span class="value">{{ build_date }}</span>
+            </div>
+        </div>
+
+        <div class="api-endpoints">
+            <h2>Available Endpoints</h2>
+            <ul class="endpoint-list">
+                {% for endpoint in endpoints %}
+                <li class="endpoint-item">
+                    <a href="{{ endpoint.url }}">
+                        <div class="endpoint-path">{{ endpoint.url }}</div>
+                        <div class="endpoint-description">{{ endpoint.description }}</div>
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div class="footer">
+            <p>Powered by Django | Deployed on Kubernetes</p>
+        </div>
+    </div>
+</body>
+</html>

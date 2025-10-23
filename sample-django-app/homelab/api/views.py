@@ -2,9 +2,11 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from django.core.cache import cache
+from django.shortcuts import render
 import os
 import time
 import platform
+import version
 
 
 @api_view(['GET'])
@@ -48,7 +50,9 @@ def api_info(request):
     """API information and available endpoints."""
     return Response({
         'name': 'Homelab Django API',
-        'version': '1.0.0',
+        'version': version.get_version(),
+        'commit': version.get_commit_sha(),
+        'build_date': version.get_build_date(),
         'description': 'Simple Django REST API for K3s homelab demo',
         'endpoints': {
             'health': '/api/health/',
@@ -65,3 +69,34 @@ def api_info(request):
             'Path-based routing support'
         ]
     })
+
+
+def landing_page(request):
+    """Landing page showing version information and available endpoints."""
+    context = {
+        'commit_sha': version.get_commit_sha(),
+        'build_date': version.get_build_date(),
+        'endpoints': [
+            {
+                'url': '/django/api/health/',
+                'description': 'Health check endpoint for monitoring'
+            },
+            {
+                'url': '/django/api/system/',
+                'description': 'System information with Redis caching'
+            },
+            {
+                'url': '/django/api/info/',
+                'description': 'API information and version details'
+            },
+            {
+                'url': '/django/metrics',
+                'description': 'Prometheus metrics endpoint'
+            },
+            {
+                'url': '/django/admin/',
+                'description': 'Django admin interface'
+            }
+        ]
+    }
+    return render(request, 'index.html', context)

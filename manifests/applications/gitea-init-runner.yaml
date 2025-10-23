@@ -1,0 +1,72 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-init-runner
+  namespace: applications
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: gitea-init-runner
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-gitea
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for Gitea to be ready..."
+          attempts=0
+          max_attempts=60
+          until curl -sf http://gitea:3000/api/healthz > /dev/null; do
+            attempts=$((attempts + 1))
+            if [ $attempts -ge $max_attempts ]; then
+              echo "Gitea failed to become ready after $max_attempts attempts"
+              exit 1
+            fi
+            echo "Gitea not ready yet, waiting... (attempt $attempts/$max_attempts)"
+            sleep 5
+          done
+          echo "Gitea is ready!"
+          sleep 5
+      containers:
+      - name: init-runner
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          echo "Creating runner registration token..."
+
+          # Create a runner registration token via API
+          RESPONSE=$(curl -X POST "http://gitea:3000/api/v1/admin/runners/registration-token" \
+            -H "Content-Type: application/json" \
+            -u "homelab:homelab" \
+            -s)
+
+          TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+          if [ -z "$TOKEN" ]; then
+            echo "Failed to create runner token. Response: $RESPONSE"
+            exit 1
+          fi
+
+          echo "Runner token created successfully"
+          echo "Token: $TOKEN"
+
+          # Update the secret with the actual token
+          # We'll use kubectl patch via a helper script mounted from configmap
+          # Since we can't run kubectl from this container, we'll output the token
+          # and have the deploy script handle it
+
+          # Store token in a file that can be read by the deployment script
+          echo "$TOKEN" > /tmp/runner-token.txt
+
+          echo "Runner initialization complete!"

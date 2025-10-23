@@ -1,0 +1,214 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: django-app-source
+  namespace: applications
+data:
+  # This ConfigMap will be populated by the deploy script
+  # It serves as a marker that the source code should be loaded
+  placeholder: "source-code-loaded-via-script"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-init-repo
+  namespace: applications
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: gitea-init-repo
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-gitea
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for Gitea to be ready..."
+          attempts=0
+          max_attempts=60
+          until curl -sf http://gitea:3000/api/healthz > /dev/null; do
+            attempts=$((attempts + 1))
+            if [ $attempts -ge $max_attempts ]; then
+              echo "Gitea failed to become ready after $max_attempts attempts"
+              exit 1
+            fi
+            echo "Gitea not ready yet, waiting... (attempt $attempts/$max_attempts)"
+            sleep 5
+          done
+          echo "Gitea is ready!"
+          sleep 5
+      containers:
+      - name: init-repo
+        image: alpine/git:latest
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+
+          # Install curl for API calls
+          apk add --no-cache curl jq
+
+          echo "=========================================="
+          echo "Initializing Django App Repository"
+          echo "=========================================="
+
+          GITEA_URL="http://gitea:3000"
+          USERNAME="homelab"
+          PASSWORD="homelab"
+          ORG_NAME="homelab"
+          REPO_NAME="django-app"
+
+          # Check if organization exists, create if not
+          echo "Checking if organization '$ORG_NAME' exists..."
+          ORG_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            "$GITEA_URL/api/v1/orgs/$ORG_NAME")
+
+          if [ "$ORG_CHECK" = "404" ]; then
+            echo "Creating organization '$ORG_NAME'..."
+            curl -X POST "$GITEA_URL/api/v1/orgs" \
+              -H "Content-Type: application/json" \
+              -u "$USERNAME:$PASSWORD" \
+              -d "{
+                \"username\": \"$ORG_NAME\",
+                \"full_name\": \"Homelab Organization\",
+                \"description\": \"Homelab applications\",
+                \"visibility\": \"public\"
+              }" || echo "Organization might already exist, continuing..."
+            sleep 2
+          else
+            echo "Organization '$ORG_NAME' already exists"
+          fi
+
+          # Check if repository exists
+          echo "Checking if repository exists..."
+          REPO_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            "$GITEA_URL/api/v1/repos/$ORG_NAME/$REPO_NAME")
+
+          if [ "$REPO_CHECK" = "200" ]; then
+            echo "Repository already exists. Deleting for fresh initialization..."
+            curl -X DELETE "$GITEA_URL/api/v1/repos/$ORG_NAME/$REPO_NAME" \
+              -u "$USERNAME:$PASSWORD" || {
+                echo "Failed to delete existing repository"
+                exit 1
+              }
+            sleep 3
+          fi
+
+          # Create repository
+          echo "Creating repository '$REPO_NAME' in organization '$ORG_NAME'..."
+          CREATE_RESPONSE=$(curl -X POST "$GITEA_URL/api/v1/orgs/$ORG_NAME/repos" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            -d "{
+              \"name\": \"$REPO_NAME\",
+              \"description\": \"Django Application with CI/CD\",
+              \"private\": false,
+              \"auto_init\": false,
+              \"default_branch\": \"main\"
+            }")
+
+          echo "Repository creation response: $CREATE_RESPONSE"
+
+          # Wait a moment for repository to be fully initialized
+          sleep 5
+
+          # Configure git
+          git config --global user.email "homelab@localhost.local"
+          git config --global user.name "Homelab"
+          git config --global init.defaultBranch main
+
+          # Clone the source code from mounted volume
+          echo "Initializing git repository with Django app source..."
+          cd /workspace
+
+          if [ ! -f "manage.py" ]; then
+            echo "Error: Django source code not found in /workspace"
+            echo "Contents of /workspace:"
+            ls -la /workspace/
+            exit 1
+          fi
+
+          # Initialize git repository
+          git init
+          git add .
+          git commit -m "Initial commit: Django application with Gitea Actions CI/CD
+
+This commit includes:
+- Django application code
+- Gitea Actions workflow for automated builds
+- Dockerfile for containerization
+- Version management
+
+The workflow will automatically build and push container images on push to main branch."
+
+          # Push to Gitea
+          REPO_URL="http://$USERNAME:$PASSWORD@gitea:3000/$ORG_NAME/$REPO_NAME.git"
+          echo "Pushing code to Gitea repository..."
+          git remote add origin "$REPO_URL"
+          git push -u origin main
+
+          echo "Repository initialized successfully!"
+
+          # Enable Actions for the repository
+          echo "Enabling Actions for repository..."
+          curl -X PATCH "$GITEA_URL/api/v1/repos/$ORG_NAME/$REPO_NAME" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            -d '{"has_actions": true}' || echo "Warning: Could not enable actions via API, may need manual enablement"
+
+          # Create an API token for Gitea Actions to push to registry
+          echo "Creating API token for Gitea Actions..."
+          TOKEN_RESPONSE=$(curl -X POST "$GITEA_URL/api/v1/users/$USERNAME/tokens" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            -d "{
+              \"name\": \"gitea-actions-token\",
+              \"scopes\": [\"write:package\", \"write:repository\", \"write:user\"]
+            }" 2>/dev/null || echo "")
+
+          API_TOKEN=$(echo "$TOKEN_RESPONSE" | grep -o '"sha1":"[^"]*"' | cut -d'"' -f4)
+
+          if [ -n "$API_TOKEN" ]; then
+            echo "API token created successfully"
+            echo "Storing token as repository secret..."
+
+            # Try to create repository secret via API (if available in Gitea 1.20)
+            curl -X PUT "$GITEA_URL/api/v1/repos/$ORG_NAME/$REPO_NAME/actions/secrets/GITEA_TOKEN" \
+              -H "Content-Type: application/json" \
+              -u "$USERNAME:$PASSWORD" \
+              -d "{
+                \"data\": \"$API_TOKEN\"
+              }" 2>/dev/null && echo "Secret created successfully" || echo "Note: Secret creation via API not available, workflow will use actor credentials"
+
+            echo "API_TOKEN=$API_TOKEN" > /tmp/gitea-token.txt
+          else
+            echo "Warning: Could not create API token. Workflow will use actor credentials."
+            echo "The homelab user credentials provide sufficient access for the workflow."
+          fi
+
+          echo "=========================================="
+          echo "Repository initialization complete!"
+          echo "Repository URL: $GITEA_URL/$ORG_NAME/$REPO_NAME"
+          echo "=========================================="
+        volumeMounts:
+        - name: django-source
+          mountPath: /workspace
+          readOnly: true
+      volumes:
+      - name: django-source
+        hostPath:
+          path: /home/adam/projects/remotelab/sample-django-app
+          type: Directory

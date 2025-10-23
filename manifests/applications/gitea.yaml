@@ -56,6 +56,10 @@ spec:
           value: "changeme-this-is-insecure-homelab-secret-key-change-in-production"
         - name: GITEA__security__INTERNAL_TOKEN
           value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYmYiOjE2OTg4NjQwMDB9.KmW7_bF9C8F9F8F9F8F9F8F9F8F9F8F9F8F9F8F9F8F"
+        - name: GITEA__actions__ENABLED
+          value: "true"
+        - name: GITEA__repository__DEFAULT_REPO_UNITS
+          value: "repo.code,repo.releases,repo.issues,repo.pulls,repo.actions"
         ports:
         - containerPort: 3000
           name: http
