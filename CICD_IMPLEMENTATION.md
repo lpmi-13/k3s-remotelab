@@ -7,8 +7,8 @@ This document describes the complete CI/CD pipeline implementation for the Djang
 The CI/CD pipeline enables the following workflow:
 
 1. **Developer pushes code** to Gitea repository
-2. **Gitea Actions** automatically builds and tests the application
-3. **Docker image** is built and pushed to Gitea's container registry
+2. **Gitea Actions** automatically tests the application
+3. **Container image** is pulled from ghcr.io/lpmi-13/k3s-remotelab-django and pushed to Gitea's container registry
 4. **ArgoCD Image Updater** detects the new image
 5. **ArgoCD** automatically deploys the updated application to Kubernetes
 
@@ -47,15 +47,16 @@ Automated CI/CD pipeline with three jobs:
 - Executes Django test suite
 - Performs code quality checks with flake8
 
-#### Build and Push Job
+#### Pull and Push Job
 - Triggers only on main branch commits
-- Builds multi-architecture Docker image (AMD64/ARM64)
+- Pulls container image from ghcr.io/lpmi-13/k3s-remotelab-django
 - Tags image with multiple strategies:
   - `latest` for main branch
+  - `[version].[build_number]` for semantic versioning
   - `[branch]-[sha]` for commit tracking
   - `[branch]` for branch tracking
 - Pushes to Gitea container registry
-- Uses Docker layer caching for performance
+- Fast operation with no local build required
 
 #### Security Scan Job
 - Scans built image for vulnerabilities using Trivy
@@ -162,10 +163,10 @@ The pipeline uses Gitea's built-in container registry:
    - Unit test execution
    - Dependency validation
 
-3. **Build Phase**:
-   - Multi-architecture Docker build
-   - Image optimization and security
-   - Registry push with multiple tags
+3. **Pull and Push Phase**:
+   - Pull latest image from ghcr.io/lpmi-13/k3s-remotelab-django
+   - Re-tag with version information
+   - Push to Gitea container registry with multiple tags
 
 4. **Security Phase**:
    - Vulnerability scanning
@@ -289,10 +290,10 @@ kubectl exec -it deployment/django -n applications -- python manage.py check
 ## Performance Optimization
 
 ### Build Performance
-- Docker layer caching
+- Fast image pulls from ghcr.io
 - Parallel job execution
-- Dependency caching
-- Multi-stage builds
+- No local build overhead
+- Efficient image re-tagging
 
 ### Deployment Performance
 - Rolling updates for zero downtime
@@ -336,8 +337,11 @@ This CI/CD implementation provides a complete, production-ready pipeline for Dja
 
 - Infrastructure as Code with GitOps
 - Automated testing and security scanning
+- Container image caching and distribution from public registries
 - Container-native deployment strategies
 - Comprehensive monitoring and observability
 - Security best practices throughout the pipeline
+
+The implementation uses a pull-and-push approach where images are sourced from `ghcr.io/lpmi-13/k3s-remotelab-django` and cached in the local Gitea registry. This provides fast deployments without local build overhead while maintaining a local registry for consistent image availability.
 
 The implementation serves as a foundation that can be extended and customized for specific requirements while maintaining the core principles of automation, reliability, and security.

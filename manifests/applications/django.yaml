@@ -24,11 +24,9 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
-      imagePullSecrets:
-      - name: gitea-registry-secret
       containers:
       - name: django
-        image: gitea.homelab.local/homelab/django-app:1.0.1
+        image: ghcr.io/lpmi-13/k3s-remotelab-django:latest
         imagePullPolicy: Always
         env:
         - name: REDIS_URL

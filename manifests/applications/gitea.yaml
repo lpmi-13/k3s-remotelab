@@ -60,6 +60,10 @@ spec:
           value: "true"
         - name: GITEA__repository__DEFAULT_REPO_UNITS
           value: "repo.code,repo.releases,repo.issues,repo.pulls,repo.actions"
+        - name: GITEA__actions__DEFAULT_ACTIONS_URL
+          value: "https://github.com"
+        - name: GITEA_RUNNER_REGISTRATION_TOKEN
+          value: "homelab-static-runner-token-change-in-production"
         ports:
         - containerPort: 3000
           name: http

@@ -51,10 +51,9 @@ The deployment script is:
 3. Deploys all Kubernetes resources (ArgoCD, monitoring, infrastructure)
 4. Waits for Gitea to be ready
 5. Automatically creates Gitea admin user (username: `homelab`, password: `homelab`)
-6. Configures temporary Docker registry settings (no persistent changes!)
-7. Builds Django image and pushes to Gitea registry
+6. Initializes Django repository in Gitea with automated workflow
+7. Pulls Django image from ghcr.io/lpmi-13/k3s-remotelab-django and pushes to Gitea registry
 8. Deploys Django application with Linkerd sidecar injection
-9. Cleans up temporary configuration
 
 ## Service Access
 
@@ -82,14 +81,24 @@ Once deployed, all services are available exclusively via **HTTPS** with self-si
 
 ### Container Registry
 
-The Gitea container registry is configured automatically during deployment. To push updated images:
+The Gitea container registry is configured automatically during deployment. The system pulls images from `ghcr.io/lpmi-13/k3s-remotelab-django` and caches them in the local Gitea registry.
 
+**Automated Workflow:**
+- On git push to main branch, Gitea Actions automatically:
+  1. Pulls the latest image from `ghcr.io/lpmi-13/k3s-remotelab-django`
+  2. Re-tags and pushes to Gitea registry
+  3. Runs security scans with Trivy
+
+**Manual Image Operations:**
 ```bash
 # Login to registry (one-time)
 echo 'homelab' | docker login localhost -u homelab --password-stdin
 
-# Build new version
-docker build -t localhost/homelab/django-app:v2 .
+# Pull from ghcr.io
+docker pull ghcr.io/lpmi-13/k3s-remotelab-django:latest
+
+# Tag for Gitea registry
+docker tag ghcr.io/lpmi-13/k3s-remotelab-django:latest localhost/homelab/django-app:v2
 
 # Push to registry
 docker push localhost/homelab/django-app:v2
@@ -97,8 +106,6 @@ docker push localhost/homelab/django-app:v2
 # Update deployment to use new tag
 kubectl set image deployment/django django=localhost/homelab/django-app:v2 -n applications
 ```
-
-**Note:** The deployment script uses a temporary Docker config that doesn't modify your system settings. For subsequent pushes, you may need to login again.
 
 See `docs/CONTAINER_REGISTRY_SETUP.md` for detailed instructions.
 

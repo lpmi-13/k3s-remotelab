@@ -58,13 +58,7 @@ jobs:
           SEMVER="${BASE_VERSION}.${{ gitea.run_number }}"
           echo "semver=${SEMVER}" >> $GITHUB_OUTPUT
           echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
-          echo "Building version: ${SEMVER}"
-
-      - name: Set build information
-        id: build_info
-        run: |
-          echo "commit_sha=${{ gitea.sha }}" >> $GITHUB_OUTPUT
-          echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+          echo "Tagging version: ${SEMVER}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -78,32 +72,28 @@ jobs:
 
       - name: Extract metadata
         id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=${{ steps.version.outputs.semver }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+        run: |
+          GITEA_IMAGE="${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}"
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          echo "image=${GITEA_IMAGE}" >> $GITHUB_OUTPUT
+          echo "build_date=${BUILD_DATE}" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.version.outputs.semver }}
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:main
+            ${{ steps.meta.outputs.image }}:main-${{ gitea.sha }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.semver }}
-            BUILD_COMMIT=${{ steps.build_info.outputs.commit_sha }}
-            BUILD_DATE=${{ steps.build_info.outputs.build_date }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+            BUILD_COMMIT=${{ gitea.sha }}
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+          cache-from: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache
+          cache-to: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache,mode=max
 
   security-scan:
     needs: build-and-push

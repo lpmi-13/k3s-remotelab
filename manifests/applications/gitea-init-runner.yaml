@@ -1,3 +1,39 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea-runner-sa
+  namespace: applications
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: gitea-runner-role
+  namespace: applications
+rules:
+- apiGroups: [""]
+  resources: ["pods", "pods/exec"]
+  verbs: ["get", "list", "create"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "create", "update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments"]
+  verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: gitea-runner-rolebinding
+  namespace: applications
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: gitea-runner-role
+subjects:
+- kind: ServiceAccount
+  name: gitea-runner-sa
+  namespace: applications
+---
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,38 +71,44 @@ spec:
           done
           echo "Gitea is ready!"
           sleep 5
+      serviceAccountName: gitea-runner-sa
       containers:
       - name: init-runner
-        image: curlimages/curl:latest
+        image: bitnami/kubectl:latest
         command:
         - sh
         - -c
         - |
           set -e
-          echo "Creating runner registration token..."
+          echo "Creating runner registration token using Gitea CLI..."
 
-          # Create a runner registration token via API
-          RESPONSE=$(curl -X POST "http://gitea:3000/api/v1/admin/runners/registration-token" \
-            -H "Content-Type: application/json" \
-            -u "homelab:homelab" \
-            -s)
-
-          TOKEN=$(echo "$RESPONSE" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+          # Use kubectl exec to run the Gitea CLI command
+          # The API endpoint is broken in Gitea 1.20, so we use the CLI instead
+          TOKEN=$(kubectl exec -n applications deployment/gitea -c gitea -- \
+            /bin/bash -c "cd /data/gitea && /app/gitea/gitea actions generate-runner-token" 2>/dev/null | tail -1)
 
           if [ -z "$TOKEN" ]; then
-            echo "Failed to create runner token. Response: $RESPONSE"
+            echo "Failed to generate runner token via Gitea CLI"
             exit 1
           fi
 
           echo "Runner token created successfully"
-          echo "Token: $TOKEN"
+          echo "Token (first 10 chars): ${TOKEN:0:10}..."
 
-          # Update the secret with the actual token
-          # We'll use kubectl patch via a helper script mounted from configmap
-          # Since we can't run kubectl from this container, we'll output the token
-          # and have the deploy script handle it
+          # Create/update the secret with the generated token
+          echo "Updating runner-secret with generated token..."
+          kubectl create secret generic runner-secret \
+            --from-literal=token="$TOKEN" \
+            --namespace=applications \
+            --dry-run=client -o yaml | kubectl apply -f -
 
-          # Store token in a file that can be read by the deployment script
-          echo "$TOKEN" > /tmp/runner-token.txt
+          echo "Secret updated successfully"
+
+          # Restart the runner deployment to pick up the new token
+          echo "Restarting act-runner deployment..."
+          kubectl rollout restart deployment/act-runner -n applications
+
+          echo "Waiting for runner to be ready..."
+          kubectl rollout status deployment/act-runner -n applications --timeout=2m
 
           echo "Runner initialization complete!"

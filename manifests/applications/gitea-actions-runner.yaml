@@ -18,10 +18,10 @@ metadata:
   namespace: applications
 type: Opaque
 stringData:
-  # This token will be created by the gitea-init-runner job
-  # The format is: glrt-<random-string>
-  # For now, we use a placeholder that will be updated by the init job
-  token: "placeholder-will-be-updated-by-init-job"
+  # Static runner registration token for homelab environment
+  # This is a persistent token that doesn't expire
+  # In production, generate via: gitea actions generate-runner-token
+  token: "homelab-static-runner-token-change-in-production"
 ---
 apiVersion: apps/v1
 kind: Deployment
