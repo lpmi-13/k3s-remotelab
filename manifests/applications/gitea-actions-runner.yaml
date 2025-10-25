@@ -18,9 +18,8 @@ metadata:
   namespace: applications
 type: Opaque
 stringData:
-  # Static runner registration token for remotelab environment
+  # Static runner registration token - must match GITEA_RUNNER_REGISTRATION_TOKEN in gitea.yaml
   # This is a persistent token that doesn't expire
-  # In production, generate via: gitea actions generate-runner-token
   token: "remotelab-static-runner-token-change-in-production"
 ---
 apiVersion: apps/v1

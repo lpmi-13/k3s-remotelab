@@ -89,14 +89,31 @@ echo ""
 echo "Step 1: Installing Linkerd service mesh..."
 echo "  → Installing Gateway API CRDs..."
 kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml > /dev/null 2>&1
-echo "  → Installing Linkerd CRDs..."
-kubectl apply -f manifests/service-mesh/linkerd-crds.yaml > /dev/null 2>&1
-echo "  → Installing Linkerd control plane..."
-kubectl apply -f manifests/service-mesh/linkerd-control-plane.yaml
+
+# Check if linkerd CLI is available and add to PATH
+if ! command -v linkerd &> /dev/null; then
+    export PATH=$PATH:/home/adam/.linkerd2/bin
+fi
+
+# Check if Linkerd is already installed
+if kubectl get namespace linkerd > /dev/null 2>&1 && kubectl get configmap linkerd-config -n linkerd > /dev/null 2>&1; then
+    echo "  → Linkerd already installed, performing upgrade..."
+    echo "  → Upgrading Linkerd CRDs..."
+    linkerd upgrade --crds | kubectl apply -f - > /dev/null 2>&1
+    echo "  → Upgrading Linkerd control plane with fresh certificates (7-day validity)..."
+    linkerd upgrade --identity-issuance-lifetime=168h0m0s | kubectl apply -f -
+else
+    echo "  → Performing fresh Linkerd installation..."
+    echo "  → Installing Linkerd CRDs..."
+    linkerd install --crds | kubectl apply -f - > /dev/null 2>&1
+    echo "  → Installing Linkerd control plane with fresh certificates (7-day validity)..."
+    linkerd install --identity-issuance-lifetime=168h0m0s | kubectl apply -f -
+fi
+
 echo "  → Waiting for Linkerd to be ready..."
 kubectl wait --for=condition=available --timeout=300s deployment/linkerd-destination -n linkerd
 kubectl wait --for=condition=available --timeout=300s deployment/linkerd-proxy-injector -n linkerd
-echo "  ✓ Linkerd service mesh ready (mTLS enabled for all services)"
+echo "  ✓ Linkerd service mesh ready (mTLS enabled for all services, certificates valid for 7 days)"
 
 echo ""
 echo "Step 2: Deploying Kubernetes resources..."
@@ -174,8 +191,9 @@ echo "  ✓ Gitea admin user ready (username: remotelab, password: remotelab)"
 
 echo ""
 echo "Step 8: Setting up Gitea Actions runner..."
+echo "  → Using static runner registration token (configured in Gitea deployment)"
 
-echo "  → Deploying Gitea Actions runner with static token..."
+echo "  → Deploying Gitea Actions runner..."
 kubectl apply -f manifests/applications/gitea-actions-runner.yaml
 
 echo "  → Waiting for runner to be ready..."
@@ -222,8 +240,11 @@ fi
 echo ""
 echo "Step 10: Deploying Django application..."
 echo "  → Initial deployment uses ghcr.io/lpmi-13/k3s-remotelab-django:latest"
-echo "  → Future updates will use Gitea registry via GitOps workflow"
+echo "  → After runner is working and workflow runs, ArgoCD will update to Gitea registry image"
 kubectl apply -f manifests/applications/django.yaml
+
+echo ""
+echo "Step 11: Verifying Django deployment..."
 echo "  → Waiting for Django (may take a few minutes)..."
 kubectl wait --for=condition=available --timeout=600s deployment/django -n applications || {
     echo "  ⚠ Warning: Django deployment timed out or failed"

@@ -1,17 +1,9 @@
 FROM python:3.12-slim
 
-# Build arguments for version information
-ARG APP_VERSION=unknown
-ARG BUILD_COMMIT=unknown
-ARG BUILD_DATE=unknown
-
-# Set environment variables
+# Set environment variables (non-build-arg ones first)
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DJANGO_SETTINGS_MODULE=remotelab.settings
-ENV APP_VERSION=${APP_VERSION}
-ENV BUILD_COMMIT=${BUILD_COMMIT}
-ENV BUILD_DATE=${BUILD_DATE}
 
 # Set work directory
 WORKDIR /app
@@ -29,6 +21,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project
 COPY . .
+
+# Build arguments for version information when building and pushing the initial image. We do this because getting an image built to run during cluster initialization is non-trivial, and this is a simple way to have something running on startup.
+ARG APP_VERSION=initial
+ARG BUILD_COMMIT=initial
+ARG BUILD_DATE=initial
+
+# Set build-arg-dependent environment variables when pushing to Gitea. This overrides the settings above so we can verify the GitOps pipeline.
+ENV APP_VERSION=${APP_VERSION}
+ENV BUILD_COMMIT=${BUILD_COMMIT}
+ENV BUILD_DATE=${BUILD_DATE}
 
 # Inject build information into version.py
 RUN sed -i "s/BUILD_COMMIT = \"unknown\"/BUILD_COMMIT = \"${BUILD_COMMIT}\"/" version.py && \

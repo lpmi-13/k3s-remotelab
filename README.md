@@ -47,7 +47,7 @@ The deployment script is:
 
 **What it does:**
 1. Cleans up any existing resources (can be skipped with `--skip-cleanup`)
-2. Installs Linkerd service mesh with automatic mTLS for all services
+2. Installs Linkerd service mesh with automatic mTLS for all services (certificates valid for 7 days)
 3. Deploys all Kubernetes resources (ArgoCD, monitoring, infrastructure)
 4. Waits for Gitea to be ready
 5. Automatically creates Gitea admin user (username: `remotelab`, password: `remotelab`)
