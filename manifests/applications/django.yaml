@@ -6,7 +6,7 @@ metadata:
   labels:
     app: django
   annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea.homelab.local/homelab/django-app:1.x
+    argocd-image-updater.argoproj.io/image-list: django=gitea.remotelab.local/remotelab/django-app:1.x
     argocd-image-updater.argoproj.io/django.update-strategy: semver
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: main
@@ -34,7 +34,7 @@ spec:
         - name: DEBUG
           value: "false"
         - name: SECRET_KEY
-          value: "django-insecure-homelab-key-change-in-production"
+          value: "django-insecure-remotelab-key-change-in-production"
         ports:
         - containerPort: 8000
         resources:

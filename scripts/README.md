@@ -1,6 +1,6 @@
-# Homelab Deployment Scripts
+# Remotelab Deployment Scripts
 
-This directory contains scripts to set up and deploy your K3s homelab.
+This directory contains scripts to set up and deploy your K3s remotelab.
 
 ## Scripts
 
@@ -8,7 +8,7 @@ This directory contains scripts to set up and deploy your K3s homelab.
 System-level installation script for K3s.
 
 **Purpose:**
-- Installs K3s with homelab-optimized configuration
+- Installs K3s with remotelab-optimized configuration
 - Sets up kubectl access
 - Installs Helm
 - Configures storage and Traefik ingress
@@ -21,7 +21,7 @@ System-level installation script for K3s.
 **Run this once** before deploying the stack. Requires sudo access.
 
 ### `deploy-all.sh`
-Complete deployment script for the entire homelab stack.
+Complete deployment script for the entire remotelab stack.
 
 **Purpose:**
 - Fully automated, non-interactive deployment
@@ -47,7 +47,7 @@ Complete deployment script for the entire homelab stack.
 1. Deploys namespaces, ArgoCD, and monitoring stack
 2. Deploys infrastructure (PostgreSQL, Redis, Gitea)
 3. Configures ingress with container registry support
-4. **Automatically creates Gitea admin user** (homelab/homelab)
+4. **Automatically creates Gitea admin user** (remotelab/remotelab)
 5. **Uses temporary Docker config** for insecure registry (no system changes!)
 6. Builds Django image and pushes to Gitea registry
 7. Deploys Django application

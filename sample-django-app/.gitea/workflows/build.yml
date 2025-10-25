@@ -12,7 +12,7 @@ on:
       - main
 
 env:
-  REGISTRY: gitea.homelab.local
+  REGISTRY: gitea.remotelab.local
   IMAGE_NAME: django-app
 
 jobs:

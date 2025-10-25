@@ -153,15 +153,15 @@ data:
   registries.conf: |
     registries:
     - name: Gitea Registry
-      prefix: gitea.homelab.local
-      api_url: https://gitea.homelab.local/api/v1
+      prefix: gitea.remotelab.local
+      api_url: https://gitea.remotelab.local/api/v1
       ping: yes
       insecure: yes
       credentials: secret:argocd/gitea-registry-creds#username#password
   git.config: |
     [user]
     name = ArgoCD Image Updater
-    email = argocd-image-updater@homelab.local
+    email = argocd-image-updater@remotelab.local
   log.level: info
   argocd.server_addr: argocd-server.argocd.svc.cluster.local:443
   argocd.insecure: "true"
@@ -177,5 +177,5 @@ metadata:
     app.kubernetes.io/part-of: argocd
 type: Opaque
 stringData:
-  username: "homelab"  # Replace with actual Gitea username
+  username: "remotelab"  # Replace with actual Gitea username
   password: "changeme"  # Replace with actual Gitea password or token

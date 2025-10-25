@@ -2,7 +2,7 @@
 global:
   singleNode: true
   storageClass: "local-path"
-  domain: "homelab.local"
+  domain: "remotelab.local"
 
 # Replica counts for single-node
 replicas:

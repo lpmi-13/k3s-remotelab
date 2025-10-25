@@ -1,6 +1,6 @@
-# Django Homelab API
+# Django Remotelab API
 
-A sample Django REST API application designed for K3s homelab CI/CD pipeline demonstration. This application showcases automated building, testing, and deployment using Gitea Actions and ArgoCD.
+A sample Django REST API application designed for K3s remotelab CI/CD pipeline demonstration. This application showcases automated building, testing, and deployment using Gitea Actions and ArgoCD.
 
 ## Features
 
@@ -26,7 +26,7 @@ A sample Django REST API application designed for K3s homelab CI/CD pipeline dem
 
 1. **Clone the repository**:
    ```bash
-   git clone https://gitea.homelab.local/homelab/django-app.git
+   git clone https://gitea.remotelab.local/remotelab/django-app.git
    cd django-app
    ```
 
@@ -136,8 +136,8 @@ Configure these secrets in your Gitea repository:
 
 Images are stored in Gitea's built-in container registry:
 
-- **Registry URL**: `gitea.homelab.local`
-- **Image Path**: `gitea.homelab.local/[username]/django-app`
+- **Registry URL**: `gitea.remotelab.local`
+- **Image Path**: `gitea.remotelab.local/[username]/django-app`
 - **Tags**: `latest`, `main-[sha]`, `[branch-name]`
 
 ## Kubernetes Deployment
@@ -149,7 +149,7 @@ The application is deployed using ArgoCD with automatic image updates:
 ```yaml
 metadata:
   annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea.homelab.local/homelab/django-app:latest
+    argocd-image-updater.argoproj.io/image-list: django=gitea.remotelab.local/remotelab/django-app:latest
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: main
 ```
@@ -298,7 +298,7 @@ kubectl get applications -n argocd
 python manage.py test
 
 # Run specific test
-python manage.py test homelab.api.tests.HealthCheckTestCase
+python manage.py test remotelab.api.tests.HealthCheckTestCase
 
 # Run with coverage
 pip install coverage
@@ -310,7 +310,7 @@ coverage report
 
 ### Django Settings
 
-Key configuration options in `homelab/settings.py`:
+Key configuration options in `remotelab/settings.py`:
 
 - **FORCE_SCRIPT_NAME**: Path-based routing support
 - **ALLOWED_HOSTS**: Permitted hostnames
@@ -346,5 +346,5 @@ For questions or issues:
 
 1. Check the troubleshooting section
 2. Review application logs
-3. Consult the homelab documentation
+3. Consult the remotelab documentation
 4. Create an issue in the repository

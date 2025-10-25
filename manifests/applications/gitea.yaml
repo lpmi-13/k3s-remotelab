@@ -53,7 +53,7 @@ spec:
         - name: GITEA__security__INSTALL_LOCK
           value: "true"
         - name: GITEA__security__SECRET_KEY
-          value: "changeme-this-is-insecure-homelab-secret-key-change-in-production"
+          value: "changeme-this-is-insecure-remotelab-secret-key-change-in-production"
         - name: GITEA__security__INTERNAL_TOKEN
           value: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYmYiOjE2OTg4NjQwMDB9.KmW7_bF9C8F9F8F9F8F9F8F9F8F9F8F9F8F9F8F9F8F"
         - name: GITEA__actions__ENABLED
@@ -63,7 +63,7 @@ spec:
         - name: GITEA__actions__DEFAULT_ACTIONS_URL
           value: "https://github.com"
         - name: GITEA_RUNNER_REGISTRATION_TOKEN
-          value: "homelab-static-runner-token-change-in-production"
+          value: "remotelab-static-runner-token-change-in-production"
         ports:
         - containerPort: 3000
           name: http

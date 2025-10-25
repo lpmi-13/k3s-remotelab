@@ -18,10 +18,10 @@ metadata:
   namespace: applications
 type: Opaque
 stringData:
-  # Static runner registration token for homelab environment
+  # Static runner registration token for remotelab environment
   # This is a persistent token that doesn't expire
   # In production, generate via: gitea actions generate-runner-token
-  token: "homelab-static-runner-token-change-in-production"
+  token: "remotelab-static-runner-token-change-in-production"
 ---
 apiVersion: apps/v1
 kind: Deployment

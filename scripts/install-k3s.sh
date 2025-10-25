@@ -2,8 +2,8 @@
 
 set -e
 
-# K3s Homelab Installation Script
-# Installs k3s with optimal configuration for homelab use
+# K3s Remotelab Installation Script
+# Installs k3s with optimal configuration for remotelab use
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 # Configuration
 K3S_VERSION=${K3S_VERSION:-"v1.28.5+k3s1"}
 NODE_IP=${NODE_IP:-$(ip route get 1 | awk '{print $7; exit}')}
-CLUSTER_DOMAIN=${CLUSTER_DOMAIN:-"homelab.local"}
+CLUSTER_DOMAIN=${CLUSTER_DOMAIN:-"remotelab.local"}
 
 log() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -86,7 +86,7 @@ install_k3s() {
 
     # Create k3s config file
     cat <<EOF | sudo tee /etc/rancher/k3s/config.yaml
-# K3s configuration for homelab
+# K3s configuration for remotelab
 cluster-domain: ${CLUSTER_DOMAIN}
 disable:
   - servicelb  # We'll use Traefik LoadBalancer
@@ -224,7 +224,7 @@ display_info() {
 }
 
 main() {
-    log "Starting k3s homelab installation..."
+    log "Starting k3s remotelab installation..."
 
     check_prerequisites
     install_k3s
@@ -235,7 +235,7 @@ main() {
     create_namespaces
 
     display_info
-    success "k3s homelab installation completed successfully!"
+    success "k3s remotelab installation completed successfully!"
 }
 
 # Run main function

@@ -74,9 +74,9 @@ spec:
           # The command will fail if user already exists, which is fine
           echo "Running: gitea admin user create..."
           gitea admin user create \
-            --username homelab \
-            --password homelab \
-            --email homelab@localhost.local \
+            --username remotelab \
+            --password remotelab \
+            --email remotelab@localhost.local \
             --admin \
             --must-change-password=false \
             --config /data/gitea/conf/app.ini 2>&1 || {

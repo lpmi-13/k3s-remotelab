@@ -14,7 +14,7 @@ class HealthCheckTestCase(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['status'], 'healthy')
-        self.assertEqual(response.data['service'], 'homelab-api')
+        self.assertEqual(response.data['service'], 'remotelab-api')
         self.assertIn('timestamp', response.data)
 
 
@@ -41,6 +41,6 @@ class ApiInfoTestCase(APITestCase):
         response = self.client.get(url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['name'], 'Homelab Django API')
+        self.assertEqual(response.data['name'], 'Remotelab Django API')
         self.assertIn('endpoints', response.data)
         self.assertIn('features', response.data)

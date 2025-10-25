@@ -15,7 +15,7 @@ def health_check(request):
     """Health check endpoint for Kubernetes probes."""
     return Response({
         'status': 'healthy',
-        'service': 'homelab-api',
+        'service': 'remotelab-api',
         'timestamp': time.time()
     })
 
@@ -49,11 +49,11 @@ def system_info(request):
 def api_info(request):
     """API information and available endpoints."""
     return Response({
-        'name': 'Homelab Django API',
+        'name': 'Remotelab Django API',
         'version': version.get_version(),
         'commit': version.get_commit_sha(),
         'build_date': version.get_build_date(),
-        'description': 'Simple Django REST API for K3s homelab demo',
+        'description': 'Simple Django REST API for K3s remotelab demo',
         'endpoints': {
             'health': '/api/health/',
             'system': '/api/system/',

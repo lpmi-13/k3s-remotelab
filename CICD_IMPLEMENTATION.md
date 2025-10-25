@@ -1,6 +1,6 @@
 # CI/CD Pipeline Implementation for Django Application
 
-This document describes the complete CI/CD pipeline implementation for the Django application in the K3s homelab environment.
+This document describes the complete CI/CD pipeline implementation for the Django application in the K3s remotelab environment.
 
 ## Overview
 
@@ -31,8 +31,8 @@ A complete Django REST API application with:
 - `Dockerfile` - Multi-stage container build
 - `requirements.txt` - Python dependencies
 - `.gitea/workflows/build.yml` - CI/CD pipeline
-- `homelab/` - Django project directory
-- `homelab/api/` - REST API application
+- `remotelab/` - Django project directory
+- `remotelab/api/` - REST API application
 
 ### 2. Gitea Actions Workflow
 
@@ -68,7 +68,7 @@ Automated CI/CD pipeline with three jobs:
 **Location**: `/home/adam/projects/remotelab/manifests/applications/django.yaml`
 
 The deployment manifest has been updated to:
-- Use custom container image: `gitea.homelab.local/homelab/django-app:latest`
+- Use custom container image: `gitea.remotelab.local/remotelab/django-app:latest`
 - Include ArgoCD Image Updater annotations for automatic updates
 - Maintain all existing functionality (health checks, Redis integration, monitoring)
 - Use environment variables for configuration
@@ -78,7 +78,7 @@ The deployment manifest has been updated to:
 ```yaml
 metadata:
   annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea.homelab.local/homelab/django-app:latest
+    argocd-image-updater.argoproj.io/image-list: django=gitea.remotelab.local/remotelab/django-app:latest
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: main
 spec:
@@ -86,7 +86,7 @@ spec:
     spec:
       containers:
       - name: django
-        image: gitea.homelab.local/homelab/django-app:latest
+        image: gitea.remotelab.local/remotelab/django-app:latest
 ```
 
 ### 4. ArgoCD Image Updater
@@ -113,9 +113,9 @@ Deployment of ArgoCD Image Updater component that:
 
 The pipeline uses Gitea's built-in container registry:
 
-- **Registry URL**: `gitea.homelab.local`
+- **Registry URL**: `gitea.remotelab.local`
 - **Authentication**: Using Gitea tokens
-- **Image Naming**: `gitea.homelab.local/[username]/django-app`
+- **Image Naming**: `gitea.remotelab.local/[username]/django-app`
 - **Tag Strategy**: `latest`, branch-based, and SHA-based tags
 
 ## Workflow Details
@@ -124,7 +124,7 @@ The pipeline uses Gitea's built-in container registry:
 
 1. **Local Development**:
    ```bash
-   git clone https://gitea.homelab.local/homelab/django-app.git
+   git clone https://gitea.remotelab.local/remotelab/django-app.git
    cd django-app
    python -m venv venv
    source venv/bin/activate
@@ -273,7 +273,7 @@ The pipeline includes comprehensive monitoring:
 ```bash
 # Check Gitea Actions
 curl -H "Authorization: token $GITEA_TOKEN" \
-     https://gitea.homelab.local/api/v1/repos/homelab/django-app/actions/runs
+     https://gitea.remotelab.local/api/v1/repos/remotelab/django-app/actions/runs
 
 # Check ArgoCD applications
 kubectl get applications -n argocd
@@ -333,7 +333,7 @@ kubectl exec -it deployment/django -n applications -- python manage.py check
 
 ## Conclusion
 
-This CI/CD implementation provides a complete, production-ready pipeline for Django applications in a K3s homelab environment. It demonstrates modern DevOps practices including:
+This CI/CD implementation provides a complete, production-ready pipeline for Django applications in a K3s remotelab environment. It demonstrates modern DevOps practices including:
 
 - Infrastructure as Code with GitOps
 - Automated testing and security scanning

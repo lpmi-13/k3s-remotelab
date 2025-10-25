@@ -52,8 +52,8 @@ spec:
           echo "=========================================="
 
           GITEA_URL="http://gitea:3000"
-          USERNAME="homelab"
-          PASSWORD="homelab"
+          USERNAME="remotelab"
+          PASSWORD="remotelab"
           REPO_NAME="django-app"
           GHCR_IMAGE="ghcr.io/lpmi-13/k3s-remotelab-django:latest"
           GITEA_REGISTRY="gitea:3000"
@@ -95,8 +95,8 @@ spec:
           sleep 5
 
           # Configure git
-          git config --global user.email "homelab@localhost.local"
-          git config --global user.name "Homelab"
+          git config --global user.email "remotelab@localhost.local"
+          git config --global user.name "Remotelab"
           git config --global init.defaultBranch main
 
           # Clone the source code from GitHub to get workflow files
@@ -212,7 +212,7 @@ spec:
             echo "API_TOKEN=$API_TOKEN" > /tmp/gitea-token.txt
           else
             echo "Warning: Could not create API token. Workflow will use actor credentials."
-            echo "The homelab user credentials provide sufficient access for the workflow."
+            echo "The remotelab user credentials provide sufficient access for the workflow."
           fi
 
           echo ""

@@ -8,7 +8,7 @@ ARG BUILD_DATE=unknown
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV DJANGO_SETTINGS_MODULE=homelab.settings
+ENV DJANGO_SETTINGS_MODULE=remotelab.settings
 ENV APP_VERSION=${APP_VERSION}
 ENV BUILD_COMMIT=${BUILD_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
@@ -53,12 +53,12 @@ EXPOSE 8000
 LABEL org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.revision="${BUILD_COMMIT}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
-      org.opencontainers.image.title="Homelab Django Application" \
-      org.opencontainers.image.description="Simple Django REST API for K3s homelab demo"
+      org.opencontainers.image.title="Remotelab Django Application" \
+      org.opencontainers.image.description="Simple Django REST API for K3s remotelab demo"
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD curl -f http://localhost:8000/api/health/ || exit 1
 
 # Run the application
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "homelab.wsgi:application"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "--timeout", "120", "remotelab.wsgi:application"]

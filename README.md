@@ -1,6 +1,6 @@
-# K3s Homelab
+# K3s Remotelab
 
-A GitOps-driven, single-node K3s homelab setup that's designed to be multi-node ready. This project includes ArgoCD as the core GitOps engine, Gitea for Git hosting, a Django REST Framework application, and a complete monitoring stack with Prometheus and Grafana.
+A GitOps-driven, single-node K3s remotelab setup that's designed to be multi-node ready. This project includes ArgoCD as the core GitOps engine, Gitea for Git hosting, a Django REST Framework application, and a complete monitoring stack with Prometheus and Grafana.
 
 ## Architecture
 
@@ -50,7 +50,7 @@ The deployment script is:
 2. Installs Linkerd service mesh with automatic mTLS for all services
 3. Deploys all Kubernetes resources (ArgoCD, monitoring, infrastructure)
 4. Waits for Gitea to be ready
-5. Automatically creates Gitea admin user (username: `homelab`, password: `homelab`)
+5. Automatically creates Gitea admin user (username: `remotelab`, password: `remotelab`)
 6. Initializes Django repository in Gitea with automated workflow
 7. Pulls Django image from ghcr.io/lpmi-13/k3s-remotelab-django and pushes to Gitea registry
 8. Deploys Django application with Linkerd sidecar injection
@@ -63,8 +63,8 @@ Once deployed, all services are available exclusively via **HTTPS** with self-si
   - Username: `admin`
   - Password: Displayed at end of deployment
 - **Gitea**: https://localhost/gitea
-  - Username: `homelab`
-  - Password: `homelab`
+  - Username: `remotelab`
+  - Password: `remotelab`
   - Container registry: https://localhost/v2
 - **Django API**: https://localhost/django
   - Health check: `/django/api/health/`
@@ -92,19 +92,19 @@ The Gitea container registry is configured automatically during deployment. The 
 **Manual Image Operations:**
 ```bash
 # Login to registry (one-time)
-echo 'homelab' | docker login localhost -u homelab --password-stdin
+echo 'remotelab' | docker login localhost -u remotelab --password-stdin
 
 # Pull from ghcr.io
 docker pull ghcr.io/lpmi-13/k3s-remotelab-django:latest
 
 # Tag for Gitea registry
-docker tag ghcr.io/lpmi-13/k3s-remotelab-django:latest localhost/homelab/django-app:v2
+docker tag ghcr.io/lpmi-13/k3s-remotelab-django:latest localhost/remotelab/django-app:v2
 
 # Push to registry
-docker push localhost/homelab/django-app:v2
+docker push localhost/remotelab/django-app:v2
 
 # Update deployment to use new tag
-kubectl set image deployment/django django=localhost/homelab/django-app:v2 -n applications
+kubectl set image deployment/django django=localhost/remotelab/django-app:v2 -n applications
 ```
 
 See `docs/CONTAINER_REGISTRY_SETUP.md` for detailed instructions.
@@ -228,7 +228,7 @@ Uses `config/values-multi-node.yaml`:
 - **Service authentication** via mutual TLS certificates managed by Linkerd
 
 ⚠️ **Development Defaults (change in production!):**
-- Default passwords (homelab/homelab for Gitea, admin/admin for Grafana)
+- Default passwords (remotelab/remotelab for Gitea, admin/admin for Grafana)
 - Self-signed certificates for external TLS
 - Minimal RBAC configurations
 - No authentication on some internal services

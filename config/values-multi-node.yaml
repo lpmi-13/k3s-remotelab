@@ -2,7 +2,7 @@
 global:
   singleNode: false
   storageClass: "longhorn" # or "nfs-client"
-  domain: "homelab.local"
+  domain: "remotelab.local"
 
 # Replica counts for high availability
 replicas:
