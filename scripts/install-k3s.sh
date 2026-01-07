@@ -7,6 +7,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+source "${SCRIPT_DIR}/lib/platform.sh"
 
 # Colors for output
 RED='\033[0;31m'
@@ -17,7 +18,7 @@ NC='\033[0m' # No Color
 
 # Configuration
 K3S_VERSION=${K3S_VERSION:-"v1.28.5+k3s1"}
-NODE_IP=${NODE_IP:-$(ip route get 1 | awk '{print $7; exit}')}
+NODE_IP=${NODE_IP:-$(get_node_ip)}
 CLUSTER_DOMAIN=${CLUSTER_DOMAIN:-"remotelab.local"}
 
 log() {
@@ -46,13 +47,13 @@ check_prerequisites() {
     fi
 
     # Check system resources
-    RAM_GB=$(free -g | awk '/^Mem:/{print $2}')
+    RAM_GB=$(get_ram_gb)
     if [[ $RAM_GB -lt 4 ]]; then
         warning "Less than 4GB RAM detected. Performance may be degraded."
     fi
 
     # Check available disk space
-    DISK_GB=$(df / | awk 'NR==2{print int($4/1024/1024)}')
+    DISK_GB=$(get_disk_space_gb)
     if [[ $DISK_GB -lt 20 ]]; then
         warning "Less than 20GB disk space available. Monitor usage carefully."
     fi
@@ -76,6 +77,57 @@ uninstall_k3s() {
     if [[ -f /usr/local/bin/k3s-uninstall.sh ]]; then
         sudo /usr/local/bin/k3s-uninstall.sh
     fi
+}
+
+setup_macos() {
+    log "Setting up for macOS with local Kubernetes..."
+
+    # Check if Rancher Desktop is installed (recommended)
+    if ! is_rancher_desktop; then
+        warning "Rancher Desktop not detected at /Applications/Rancher Desktop.app"
+        log "You can use other local Kubernetes solutions (Docker Desktop, Colima, etc.)"
+        log "Or install Rancher Desktop from: https://rancherdesktop.io/"
+    fi
+
+    # Try to switch to local context
+    if ! switch_to_local_context; then
+        error "Failed to configure local Kubernetes context.
+
+Please ensure you have a local Kubernetes cluster running:
+
+Option 1 - Rancher Desktop (Recommended):
+  1. Install from: https://rancherdesktop.io/
+  2. Open Rancher Desktop
+  3. Go to Preferences > Kubernetes
+  4. Enable Kubernetes
+  5. Wait for cluster to start (check status in top-right)
+  6. Re-run this script
+
+Option 2 - Docker Desktop:
+  1. Open Docker Desktop
+  2. Go to Settings > Kubernetes
+  3. Check 'Enable Kubernetes'
+  4. Wait for cluster to start
+  5. Re-run this script
+
+Option 3 - Colima:
+  1. Install: brew install colima
+  2. Start with Kubernetes: colima start --kubernetes
+  3. Re-run this script"
+    fi
+
+    if ! check_kubernetes_available; then
+        error "Kubernetes cluster not accessible. Please ensure your local Kubernetes cluster is running and healthy.
+
+Check cluster status with:
+  kubectl cluster-info
+  kubectl get nodes"
+    fi
+
+    local context
+    context=$(kubectl config current-context 2>/dev/null)
+    success "Local Kubernetes cluster is ready (context: ${context})"
+    log "Skipping k3s installation (using local cluster)"
 }
 
 install_k3s() {
@@ -120,12 +172,45 @@ EOF
 configure_kubectl() {
     log "Configuring kubectl access..."
 
+    # Skip kubeconfig copy on macOS (Rancher Desktop handles it)
+    if [[ "$PLATFORM" == "macos" ]]; then
+        log "Skipping kubeconfig setup (Rancher Desktop manages this)"
+        if kubectl get nodes &> /dev/null; then
+            success "kubectl configured successfully"
+        else
+            error "Failed to configure kubectl"
+        fi
+        return
+    fi
+
     # Create .kube directory if it doesn't exist
     mkdir -p ~/.kube
 
-    # Copy k3s kubeconfig
-    sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-    sudo chown $(id -u):$(id -g) ~/.kube/config
+    # Backup existing config if it exists
+    if [[ -f ~/.kube/config ]]; then
+        log "Backing up existing kubeconfig..."
+        cp ~/.kube/config ~/.kube/config.backup.$(date +%Y%m%d-%H%M%S)
+    fi
+
+    # Merge k3s kubeconfig with existing config
+    if [[ -f ~/.kube/config ]]; then
+        log "Merging k3s kubeconfig with existing configuration..."
+        # Export current config
+        export KUBECONFIG=~/.kube/config:/etc/rancher/k3s/k3s.yaml
+        # Merge and flatten the configs
+        kubectl config view --flatten > ~/.kube/config.tmp
+        mv ~/.kube/config.tmp ~/.kube/config
+        chmod 600 ~/.kube/config
+        unset KUBECONFIG
+    else
+        # Copy k3s kubeconfig
+        sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+        sudo chown $(id -u):$(id -g) ~/.kube/config
+        chmod 600 ~/.kube/config
+    fi
+
+    # Switch to local context
+    switch_to_local_context || warning "Could not switch to default context, but continuing..."
 
     # Verify kubectl access
     if kubectl get nodes &> /dev/null; then
@@ -143,7 +228,13 @@ install_helm() {
         return
     fi
 
-    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    # Use Homebrew on macOS if available
+    if [[ "$PLATFORM" == "macos" ]] && command -v brew &> /dev/null; then
+        log "Installing Helm via Homebrew..."
+        brew install helm
+    else
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    fi
 
     success "Helm installed successfully"
 }
@@ -174,7 +265,7 @@ configure_traefik() {
 
     # Create middleware for common headers
     kubectl apply -f - <<EOF
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: default-headers
@@ -198,7 +289,11 @@ EOF
 create_namespaces() {
     log "Creating namespaces..."
 
-    kubectl apply -f "${PROJECT_ROOT}/manifests/namespaces/"
+    # Apply namespace files from different manifest directories
+    find "${PROJECT_ROOT}/manifests" -name "*namespace*.yaml" -o -name "ns.yaml" | while read -r file; do
+        log "Applying namespace from: $(basename "$file")"
+        kubectl apply -f "$file" || warning "Failed to apply $file"
+    done
 
     success "Namespaces created successfully"
 }
@@ -226,8 +321,15 @@ display_info() {
 main() {
     log "Starting k3s remotelab installation..."
 
-    check_prerequisites
-    install_k3s
+    if [[ "$PLATFORM" == "macos" ]]; then
+        setup_macos
+    elif [[ "$PLATFORM" == "linux" ]]; then
+        check_prerequisites
+        install_k3s
+    else
+        error "Unsupported platform: ${PLATFORM}"
+    fi
+
     configure_kubectl
     install_helm
     setup_storage

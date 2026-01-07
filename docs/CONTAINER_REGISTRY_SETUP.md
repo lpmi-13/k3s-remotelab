@@ -55,6 +55,18 @@ sudo systemctl restart docker
 
 **Note:** For production, you should use proper TLS certificates.
 
+#### macOS (Rancher Desktop)
+
+Rancher Desktop manages Docker/containerd configuration through its UI:
+
+1. Open Rancher Desktop Preferences
+2. Navigate to Container Engine settings
+3. Configure registry mirrors/insecure registries as needed
+4. Restart Rancher Desktop to apply changes
+
+Note: Rancher Desktop uses containerd by default, which handles registry
+configuration differently than Docker daemon.
+
 ### Option B: Use with K3s (Recommended for this setup)
 
 Since K3s uses containerd, we'll configure it to pull from localhost:

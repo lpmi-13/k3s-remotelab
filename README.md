@@ -20,14 +20,44 @@ A GitOps-driven, single-node K3s remotelab setup that's designed to be multi-nod
 - **Prometheus**: Metrics collection and monitoring
 - **Grafana**: Metrics visualization and dashboards
 
+## Platform Support
+
+| Platform | Kubernetes Provider | Setup |
+|----------|-------------------|-------|
+| Linux (Ubuntu/Debian) | Native k3s | Automated via `install-k3s.sh` |
+| macOS | Rancher Desktop | Install Rancher Desktop first |
+
+### macOS Prerequisites
+
+1. Install [Rancher Desktop](https://rancherdesktop.io/)
+2. Launch Rancher Desktop and configure:
+   - Go to Preferences > Container Engine
+   - **IMPORTANT: Select `containerd` (NOT `dockerd`)**
+   - This is required for k3s compatibility
+3. Enable Kubernetes:
+   - Go to Preferences > Kubernetes
+   - Enable Kubernetes
+   - Allocate at least 4GB RAM
+4. Wait for green status in the top-right (cluster ready)
+5. Run `./scripts/install-k3s.sh`
+
 ## Quick Start
 
 ### Prerequisites
 
+#### Linux
 - Ubuntu/Debian Linux (tested on Ubuntu 20.04+)
 - At least 4GB RAM
 - Docker installed and running
 - Sudo access (for K3s installation only)
+
+#### macOS
+- macOS 10.15+ (Catalina or newer)
+- Rancher Desktop installed and running with:
+  - Container Engine set to `containerd` (NOT `dockerd`)
+  - Kubernetes enabled
+  - At least 4GB RAM allocated
+- kubectl CLI (included with Rancher Desktop)
 
 ### Installation
 

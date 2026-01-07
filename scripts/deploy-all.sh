@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/platform.sh"
+
 # Show help message
 show_help() {
     echo "Usage: ./deploy-all.sh [OPTIONS]"
@@ -31,6 +34,14 @@ elif [[ -n "$1" ]]; then
 fi
 
 echo "=== Deploying Remotelab K3s Stack ==="
+echo ""
+
+# Switch to local cluster context
+echo "Ensuring kubectl is configured for local cluster..."
+switch_to_local_context || {
+    echo "Warning: Could not switch to local cluster context. Continuing with current context."
+    echo "Current context: $(kubectl config current-context 2>/dev/null || echo 'none')"
+}
 echo ""
 
 # Check if any resources exist and clean up for idempotent deployment
@@ -92,7 +103,10 @@ kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/re
 
 # Check if linkerd CLI is available and add to PATH
 if ! command -v linkerd &> /dev/null; then
-    export PATH=$PATH:/home/adam/.linkerd2/bin
+    LINKERD_PATH=$(get_linkerd_path)
+    if [[ -f "${LINKERD_PATH}/linkerd" ]]; then
+        export PATH=$PATH:${LINKERD_PATH}
+    fi
 fi
 
 # Check if Linkerd is already installed
@@ -307,6 +321,6 @@ echo "  - Fully automated CI/CD - no local Docker builds needed"
 echo "  - Container images pulled from ghcr.io/lpmi-13/k3s-remotelab-django and cached in Gitea registry"
 echo ""
 echo "Verify mTLS Status:"
-echo "  - Check Linkerd dashboard: export PATH=\$PATH:/home/adam/.linkerd2/bin && linkerd viz install | kubectl apply -f - && linkerd viz dashboard"
+echo "  - Check Linkerd dashboard: export PATH=\$PATH:$(get_linkerd_path) && linkerd viz install | kubectl apply -f - && linkerd viz dashboard"
 echo "  - View meshed pods: kubectl get pods -n applications -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.spec.containers[*].name}{\"\\n\"}{end}'"
 echo ""
