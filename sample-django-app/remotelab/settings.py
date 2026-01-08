@@ -13,7 +13,12 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 ALLOWED_HOSTS = ['*']
 
 # Support for serving from subpath /django (disabled in tests via env var)
-FORCE_SCRIPT_NAME = os.environ.get('FORCE_SCRIPT_NAME', '/django') or None
+# When FORCE_SCRIPT_NAME is explicitly set to empty string, disable it (None)
+# When not set at all, use /django as default
+if 'FORCE_SCRIPT_NAME' in os.environ:
+    FORCE_SCRIPT_NAME = os.environ['FORCE_SCRIPT_NAME'] or None
+else:
+    FORCE_SCRIPT_NAME = '/django'
 USE_X_FORWARDED_HOST = True
 
 # Application definition
