@@ -99,7 +99,7 @@ fi
 echo ""
 echo "Step 1: Installing Linkerd service mesh..."
 echo "  → Installing Gateway API CRDs..."
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml > /dev/null 2>&1
+kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml > /dev/null 2>&1
 
 # Check if linkerd CLI is available and add to PATH
 if ! command -v linkerd &> /dev/null; then
@@ -204,21 +204,49 @@ kubectl wait --for=condition=complete --timeout=180s job/gitea-init-user -n appl
 echo "  ✓ Gitea admin user ready (username: remotelab, password: remotelab)"
 
 echo ""
-echo "Step 8: Setting up Gitea Actions runner..."
-echo "  → Using static runner registration token (configured in Gitea deployment)"
+echo "Step 8: Generating Gitea Actions runner token..."
+echo "  → Waiting for Gitea to be fully initialized..."
+sleep 10
 
+echo "  → Generating runner token from Gitea CLI..."
+NEW_TOKEN=$(kubectl exec -n applications deployment/gitea -c gitea -- su -c "/usr/local/bin/gitea actions generate-runner-token" git 2>&1 | grep -v "level=" | tail -1)
+
+if [ -z "$NEW_TOKEN" ]; then
+    echo "  ❌ Error: Failed to generate runner token"
+    echo "  Check Gitea logs with: kubectl logs -n applications deployment/gitea"
+    exit 1
+fi
+
+echo "  ✓ Generated token: ${NEW_TOKEN:0:20}..."
+
+echo ""
+echo "Step 9: Deploying Gitea Actions runner..."
 echo "  → Deploying Gitea Actions runner..."
 kubectl apply -f manifests/applications/gitea-actions-runner.yaml
 
-echo "  → Waiting for runner to be ready..."
+echo "  → Waiting for runner deployment to be ready..."
 kubectl wait --for=condition=available --timeout=120s deployment/act-runner -n applications 2>/dev/null || {
     echo "  ⚠️  Runner deployment taking longer than expected..."
     kubectl get pods -n applications -l app=act-runner
 }
-echo "  ✓ Gitea Actions runner deployed"
+
+# Patch the secret AFTER the manifest is applied (so we overwrite the static placeholder)
+echo "  → Updating runner-secret with dynamic token..."
+kubectl patch secret -n applications runner-secret -p "{\"stringData\":{\"token\":\"$NEW_TOKEN\"}}"
+echo "  ✓ Runner token configured"
+
+# Restart the runner pod to pick up the new token
+echo "  → Restarting runner to pick up new token..."
+kubectl delete pod -n applications -l app=act-runner --ignore-not-found=true 2>/dev/null || true
+sleep 5
+kubectl wait --for=condition=ready --timeout=60s pod -l app=act-runner -n applications 2>/dev/null || {
+    echo "  ⚠️  Runner pod taking longer than expected to restart..."
+    kubectl get pods -n applications -l app=act-runner
+}
+echo "  ✓ Gitea Actions runner deployed and registered"
 
 echo ""
-echo "Step 9: Initializing Django app repository in Gitea..."
+echo "Step 10: Initializing Django app repository in Gitea..."
 
 # Delete old repository initialization job if it exists (for idempotency)
 kubectl delete job gitea-init-repo -n applications --ignore-not-found=true 2>/dev/null || true
@@ -252,13 +280,13 @@ else
 fi
 
 echo ""
-echo "Step 10: Deploying Django application..."
+echo "Step 11: Deploying Django application..."
 echo "  → Initial deployment uses ghcr.io/lpmi-13/k3s-remotelab-django:latest"
 echo "  → After runner is working and workflow runs, ArgoCD will update to Gitea registry image"
 kubectl apply -f manifests/applications/django.yaml
 
 echo ""
-echo "Step 11: Verifying Django deployment..."
+echo "Step 12: Verifying Django deployment..."
 echo "  → Waiting for Django (may take a few minutes)..."
 kubectl wait --for=condition=available --timeout=600s deployment/django -n applications || {
     echo "  ⚠ Warning: Django deployment timed out or failed"
@@ -307,12 +335,39 @@ echo "  - Source image: ghcr.io/lpmi-13/k3s-remotelab-django"
 echo "  - View workflow runs: https://localhost/gitea/remotelab/django-app/actions"
 echo "  - Runner status: kubectl get pods -n applications -l app=act-runner"
 echo ""
-echo "To update Django application:"
-echo "  1. Clone repo: git clone http://localhost/gitea/remotelab/django-app.git"
-echo "  2. Make changes and commit"
-echo "  3. Push to main: git push origin main"
-echo "  4. Gitea Actions will automatically pull latest image from ghcr.io and push to Gitea registry"
-echo "  5. Update deployment to use new image version"
+echo "Working with Git Repositories:"
+echo "  The system uses HTTPS with self-signed certificates. You need to configure git:"
+echo ""
+echo "  Configure git to trust localhost (run this once):"
+echo "    git config --global http.https://localhost/.sslVerify false"
+echo ""
+echo "Development Workflow - Clone, Edit, and Deploy:"
+echo "  1. Configure git (one-time setup):"
+echo "     git config --global http.https://localhost/.sslVerify false"
+echo ""
+echo "  2. Clone the Django app repository:"
+echo "     git clone https://localhost/gitea/remotelab/django-app.git"
+echo "     cd django-app"
+echo ""
+echo "  3. Make your code changes and commit:"
+echo "     # Edit files as needed"
+echo "     git add ."
+echo "     git commit -m 'Description of your changes'"
+echo ""
+echo "  4. Push to trigger automatic deployment:"
+echo "     git push origin main"
+echo ""
+echo "  5. Monitor the deployment pipeline:"
+echo "     - Gitea Actions workflow: https://localhost/gitea/remotelab/django-app/actions"
+echo "     - ArgoCD sync status: https://localhost/argocd"
+echo "     - Pod status: kubectl get pods -n applications -l app=django -w"
+echo "     - Application logs: kubectl logs -n applications -l app=django -f"
+echo ""
+echo "  What happens automatically:"
+echo "     - Gitea Actions pulls latest image from ghcr.io/lpmi-13/k3s-remotelab-django"
+echo "     - Image is pushed to local Gitea registry (gitea.remotelab.local/remotelab/django-app:1.0.1)"
+echo "     - Security scanning runs via Trivy"
+echo "     - ArgoCD detects changes and syncs deployment (if configured for auto-sync)"
 echo ""
 echo "Key Features:"
 echo "  - mTLS encryption for all pod-to-pod communication via Linkerd service mesh"

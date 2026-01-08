@@ -263,6 +263,258 @@ Uses `config/values-multi-node.yaml`:
 - Minimal RBAC configurations
 - No authentication on some internal services
 
+## Working with Gitea - Development Workflow
+
+This section covers the complete workflow for cloning, editing, and deploying code changes through the GitOps pipeline.
+
+### Initial Setup: Configure Git for Self-Signed Certificates
+
+The system uses HTTPS with self-signed certificates. You must configure git to trust localhost before cloning repositories.
+
+**One-time setup (required before first clone):**
+```bash
+# Configure git to skip SSL verification for localhost only
+git config --global http.https://localhost/.sslVerify false
+```
+
+This is safe for local development since localhost is your own machine. In production environments, you would use proper CA-signed certificates instead.
+
+**Alternative: Trust the certificate system-wide (macOS)**
+If you prefer to trust the certificate rather than disable verification:
+```bash
+# Get the certificate from Traefik
+kubectl get secret remotelab-tls -n applications -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/remotelab.crt
+
+# Add to macOS keychain (requires password)
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/remotelab.crt
+```
+
+### Complete Development Workflow
+
+#### 1. Clone a Repository
+
+```bash
+# Clone the Django application repository
+git clone https://localhost/gitea/remotelab/django-app.git
+cd django-app
+
+# Verify you can see the code
+ls -la
+```
+
+#### 2. Make Changes
+
+Edit any files in your local clone:
+```bash
+# Example: Edit the Django app
+vim myapp/views.py
+
+# Or edit workflow files
+vim .gitea/workflows/build.yaml
+```
+
+#### 3. Commit Your Changes
+
+```bash
+# Check what changed
+git status
+git diff
+
+# Stage and commit
+git add .
+git commit -m "Add new feature: user profile endpoint"
+```
+
+#### 4. Push to Trigger CI/CD Pipeline
+
+```bash
+# Push to main branch to trigger deployment
+git push origin main
+```
+
+#### 5. Monitor the Deployment
+
+After pushing, multiple automated processes start. Here's how to monitor each:
+
+**Monitor Gitea Actions (CI/CD Pipeline):**
+```bash
+# Watch workflow in browser
+open https://localhost/gitea/remotelab/django-app/actions
+
+# Or check runner status via kubectl
+kubectl get pods -n applications -l app=act-runner
+kubectl logs -n applications -l app=act-runner -f
+```
+
+**What Gitea Actions does:**
+- Pulls latest image from `ghcr.io/lpmi-13/k3s-remotelab-django`
+- Re-tags and pushes to local Gitea registry
+- Runs Trivy security scanning
+- Updates image version in deployment manifests (if configured)
+
+**Monitor ArgoCD Sync:**
+```bash
+# Watch ArgoCD in browser
+open https://localhost/argocd
+
+# Or use kubectl
+kubectl get applications -n argocd
+kubectl describe application django-app -n argocd
+```
+
+ArgoCD continuously monitors the Git repository and automatically syncs changes to the cluster (if auto-sync is enabled).
+
+**Monitor Kubernetes Deployment:**
+```bash
+# Watch pod status (press Ctrl+C to exit)
+kubectl get pods -n applications -l app=django -w
+
+# Check detailed pod information
+kubectl describe pod -n applications -l app=django
+
+# Watch pod logs in real-time
+kubectl logs -n applications -l app=django -f
+
+# Check if new pods are running the updated image
+kubectl get pods -n applications -l app=django -o jsonpath='{.items[*].spec.containers[*].image}'
+```
+
+**Monitor Application Health:**
+```bash
+# Check the application health endpoint
+curl -k https://localhost/django/api/health/
+
+# View system information
+curl -k https://localhost/django/api/system/
+```
+
+#### 6. Verify Deployment Success
+
+Check that your changes are live:
+```bash
+# Verify pods are running and ready
+kubectl get pods -n applications -l app=django
+
+# Expected output: Shows 2/2 READY (app + linkerd-proxy)
+# NAME                      READY   STATUS    RESTARTS   AGE
+# django-xxxxxxxxxx-xxxxx   2/2     Running   0          2m
+
+# Check pod events for any issues
+kubectl get events -n applications --field-selector involvedObject.name=django-xxxxxxxxxx-xxxxx
+
+# Test the application
+curl -k https://localhost/django/api/health/
+```
+
+### Troubleshooting
+
+**Issue: SSL Certificate Error**
+```
+fatal: unable to access 'https://localhost/gitea/...': SSL certificate problem
+```
+**Solution:** Run the git config command to disable SSL verification for localhost:
+```bash
+git config --global http.https://localhost/.sslVerify false
+```
+
+**Issue: Authentication Failed**
+```
+fatal: Authentication failed for 'https://localhost/gitea/...'
+```
+**Solution:** Use the correct credentials (username: `remotelab`, password: `remotelab`):
+```bash
+# Git will prompt for credentials on first push/pull
+# Or configure credential helper:
+git config --global credential.helper store
+```
+
+**Issue: Gitea Actions Not Running**
+```bash
+# Check if runner pod is healthy
+kubectl get pods -n applications -l app=act-runner
+
+# View runner logs
+kubectl logs -n applications -l app=act-runner --tail=50
+
+# Check workflow file syntax
+cat .gitea/workflows/build.yaml
+
+# Verify runner registration in Gitea UI
+open https://localhost/gitea/admin/runners
+```
+
+**Issue: ArgoCD Not Syncing**
+```bash
+# Check ArgoCD application status
+kubectl get application -n argocd django-app -o yaml
+
+# Manual sync via CLI (requires argocd CLI)
+argocd app sync django-app
+
+# Or sync via UI
+open https://localhost/argocd
+```
+
+**Issue: Deployment Not Updating**
+```bash
+# Check if image was pushed to registry
+kubectl get pods -n applications -l app=django -o jsonpath='{.items[*].spec.containers[*].image}'
+
+# Manually trigger rollout restart
+kubectl rollout restart deployment/django -n applications
+
+# Watch rollout status
+kubectl rollout status deployment/django -n applications
+```
+
+### Repository Structure
+
+The Django app repository in Gitea contains:
+```
+django-app/
+├── .gitea/
+│   └── workflows/
+│       └── build.yaml          # Gitea Actions CI/CD pipeline
+├── myapp/                       # Django application code
+│   ├── views.py
+│   ├── models.py
+│   └── ...
+├── requirements.txt             # Python dependencies
+├── Dockerfile                   # Container image definition
+└── README.md
+```
+
+### Best Practices
+
+1. **Always test locally first** before pushing to trigger CI/CD
+2. **Use meaningful commit messages** to track changes in ArgoCD UI
+3. **Monitor the pipeline** after pushing to catch issues early
+4. **Check pod logs** if deployment fails or behaves unexpectedly
+5. **Use feature branches** for experimental changes (push to non-main branches won't trigger deployment)
+
+### Advanced: Manual Image Management
+
+If you need to work with container images directly:
+
+```bash
+# Login to Gitea container registry
+echo 'remotelab' | docker login localhost -u remotelab --password-stdin
+
+# Pull from GitHub Container Registry
+docker pull ghcr.io/lpmi-13/k3s-remotelab-django:latest
+
+# Tag for Gitea registry
+docker tag ghcr.io/lpmi-13/k3s-remotelab-django:latest localhost/remotelab/django-app:v2
+
+# Push to Gitea registry
+docker push localhost/remotelab/django-app:v2
+
+# Update deployment to use new tag
+kubectl set image deployment/django django=localhost/remotelab/django-app:v2 -n applications
+
+# Or edit the manifest in Git and let ArgoCD sync it
+```
+
 ## Development
 
 ### Django Application

@@ -132,7 +132,17 @@ spec:
             exit 1
           fi
 
+          # Copy all files including hidden ones (.gitea directory)
           cp -r "$CLONE_DIR/sample-django-app/"* "$REPO_DIR/"
+          # Explicitly copy hidden directories and files
+          if [ -d "$CLONE_DIR/sample-django-app/.gitea" ]; then
+            cp -r "$CLONE_DIR/sample-django-app/.gitea" "$REPO_DIR/"
+            echo "Copied .gitea directory"
+          fi
+          if [ -f "$CLONE_DIR/sample-django-app/.gitignore" ]; then
+            cp "$CLONE_DIR/sample-django-app/.gitignore" "$REPO_DIR/"
+            echo "Copied .gitignore file"
+          fi
 
           # Verify Django app was copied correctly
           cd "$REPO_DIR"
@@ -150,7 +160,12 @@ spec:
           # Initialize git repository
           echo "Initializing git repository..."
           git init
-          git add .
+          echo "Checking .gitea directory contents before adding:"
+          find .gitea -type f
+          git add -A
+          git add -f .gitea/
+          echo "Files staged for commit:"
+          git status
           git commit -m "Initial commit: Django application with Gitea Actions CI/CD
 
           This commit includes:

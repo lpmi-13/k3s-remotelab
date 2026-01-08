@@ -12,8 +12,8 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 
 ALLOWED_HOSTS = ['*']
 
-# Support for serving from subpath /django
-FORCE_SCRIPT_NAME = '/django'
+# Support for serving from subpath /django (disabled in tests via env var)
+FORCE_SCRIPT_NAME = os.environ.get('FORCE_SCRIPT_NAME', '/django') or None
 USE_X_FORWARDED_HOST = True
 
 # Application definition
@@ -118,8 +118,6 @@ REST_FRAMEWORK = {
 }
 
 # Path-based routing configuration
-FORCE_SCRIPT_NAME = '/django'
-USE_X_FORWARDED_HOST = True
 USE_X_FORWARDED_PORT = True
 
 # Logging configuration

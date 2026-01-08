@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
       - name: gitea
-        image: gitea/gitea:1.20
+        image: gitea/gitea:1.22
         env:
         - name: GITEA__database__DB_TYPE
           value: "postgres"
