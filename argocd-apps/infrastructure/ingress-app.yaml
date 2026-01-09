@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://gitea.remotelab.local/remotelab/manifests.git
+    repoURL: https://gitea:3000/remotelab/manifests.git
     targetRevision: HEAD
     path: manifests/infrastructure
   destination:

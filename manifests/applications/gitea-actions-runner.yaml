@@ -45,7 +45,7 @@ spec:
         fsGroup: 1000
       containers:
       - name: runner
-        image: gitea/act_runner:nightly-dind-rootless
+        image: gitea/act_runner:nightly
         env:
         - name: GITEA_INSTANCE_URL
           value: "http://gitea:3000"
@@ -57,16 +57,35 @@ spec:
         - name: GITEA_RUNNER_NAME
           value: "k3s-runner"
         - name: DOCKER_HOST
-          value: "tcp://localhost:2376"
-        - name: DOCKER_CERT_PATH
-          value: "/certs/client"
-        - name: DOCKER_TLS_VERIFY
-          value: "1"
-        securityContext:
-          privileged: true
+          value: "unix:///var/run/docker.sock"
         volumeMounts:
         - name: runner-data
           mountPath: /data
+        - name: docker-sock
+          mountPath: /var/run
+        resources:
+          limits:
+            cpu: 2
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 1Gi
+      - name: dind
+        image: docker:27-dind
+        env:
+        - name: DOCKER_TLS_CERTDIR
+          value: ""
+        command:
+        - dockerd
+        - --host=unix:///var/run/docker.sock
+        - --insecure-registry=gitea:3000
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: docker-storage
+          mountPath: /var/lib/docker
+        - name: docker-sock
+          mountPath: /var/run
         resources:
           limits:
             cpu: 2
@@ -78,3 +97,7 @@ spec:
       - name: runner-data
         persistentVolumeClaim:
           claimName: act-runner-pvc
+      - name: docker-storage
+        emptyDir: {}
+      - name: docker-sock
+        emptyDir: {}

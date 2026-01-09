@@ -153,8 +153,8 @@ data:
   registries.conf: |
     registries:
     - name: Gitea Registry
-      prefix: gitea.remotelab.local
-      api_url: https://gitea.remotelab.local/api/v1
+      prefix: gitea:3000
+      api_url: http://gitea.applications.svc.cluster.local:3000/api/v1
       ping: yes
       insecure: yes
       credentials: secret:argocd/gitea-registry-creds#username#password
@@ -177,5 +177,5 @@ metadata:
     app.kubernetes.io/part-of: argocd
 type: Opaque
 stringData:
-  username: "remotelab"  # Replace with actual Gitea username
-  password: "changeme"  # Replace with actual Gitea password or token
+  username: "remotelab"
+  password: "remotelab"

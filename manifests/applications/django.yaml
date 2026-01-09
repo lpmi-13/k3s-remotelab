@@ -6,7 +6,7 @@ metadata:
   labels:
     app: django
   annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea.remotelab.local/remotelab/django-app:1.x
+    argocd-image-updater.argoproj.io/image-list: django=gitea:3000/remotelab/django-app:1.x
     argocd-image-updater.argoproj.io/django.update-strategy: semver
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: main

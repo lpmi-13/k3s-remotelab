@@ -96,12 +96,12 @@ All services accessible via `https://localhost/[path]`:
 - Monitors Gitea container registry for new images
 - Automatically updates application manifests when new images are pushed
 - Uses Git write-back to update manifests in the repository
-- Registry configuration for Gitea at `gitea.remotelab.local`
+- Registry configuration for Gitea at `gitea:3000`
 - Credentials stored in secret `gitea-registry-creds`
 
 **Image Update Strategy**: The Django deployment uses annotations for automatic updates (/Users/adam.leskis/repos/k3s-remotelab/manifests/applications/django.yaml:9-12):
 ```yaml
-argocd-image-updater.argoproj.io/image-list: django=gitea.remotelab.local/remotelab/django-app:1.x
+argocd-image-updater.argoproj.io/image-list: django=gitea:3000/remotelab/django-app:1.x
 argocd-image-updater.argoproj.io/django.update-strategy: semver
 argocd-image-updater.argoproj.io/write-back-method: git
 argocd-image-updater.argoproj.io/git-branch: main
@@ -114,7 +114,7 @@ argocd-image-updater.argoproj.io/git-branch: main
 **Deployment** (/Users/adam.leskis/repos/k3s-remotelab/manifests/applications/django.yaml:1-93):
 - Namespace: `applications`
 - Initial image: `ghcr.io/lpmi-13/k3s-remotelab-django:latest`
-- Target image (after CI/CD): `gitea.remotelab.local/remotelab/django-app:1.x`
+- Target image (after CI/CD): `gitea:3000/remotelab/django-app:1.x`
 - Port: 8000
 - Replicas: 1
 
@@ -296,13 +296,13 @@ argocd-image-updater.argoproj.io/git-branch: main
      - **Pull and Push Job**:
        - Pulls image from `ghcr.io/lpmi-13/k3s-remotelab-django:latest`
        - Re-tags with multiple strategies (latest, version.build, branch-sha)
-       - Pushes to Gitea registry at `gitea.remotelab.local/remotelab/django-app`
+       - Pushes to Gitea registry at `gitea:3000/remotelab/django-app`
      - **Security Scan Job**: Scans image with Trivy for vulnerabilities
 
 3. **Image Registry**: New image available at Gitea container registry
    - Registry endpoint: `https://localhost/v2`
-   - Internal URL: `gitea.remotelab.local`
-   - Image path: `gitea.remotelab.local/remotelab/django-app:1.0.1`
+   - Internal URL: `gitea:3000`
+   - Image path: `gitea:3000/remotelab/django-app:1.0.1`
 
 4. **ArgoCD Image Updater Detection**:
    - Polls Gitea registry every interval

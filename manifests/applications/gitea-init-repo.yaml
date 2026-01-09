@@ -154,6 +154,27 @@ spec:
           fi
 
           echo "Django app extracted successfully"
+
+          # Fix registry hostname in workflow file (GitHub has external hostname, we need internal)
+          echo "Updating workflow to use internal registry hostname..."
+          echo "Looking for workflow files:"
+          find "$REPO_DIR/.gitea" -name "*.yml" -o -name "*.yaml" 2>/dev/null || echo "No .gitea directory found"
+
+          # Handle both .yml and .yaml extensions
+          for workflow_file in "$REPO_DIR/.gitea/workflows/build.yml" "$REPO_DIR/.gitea/workflows/build.yaml"; do
+            if [ -f "$workflow_file" ]; then
+              echo "Processing: $workflow_file"
+              echo "Before update:"
+              grep -i "registry" "$workflow_file" | head -5
+              # Replace any variation of the external hostname with internal service name
+              sed -i 's/gitea\.remotelab\.local/gitea:3000/g' "$workflow_file"
+              sed -i 's/gitea-registry\.local/gitea:3000/g' "$workflow_file"
+              sed -i 's/localhost\/v2/gitea:3000/g' "$workflow_file"
+              echo "After update:"
+              grep -i "registry" "$workflow_file" | head -5
+            fi
+          done
+
           echo "Repository contents:"
           ls -la "$REPO_DIR/"
 

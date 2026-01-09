@@ -120,7 +120,7 @@ docker push localhost/remotelab/django-app:latest
 
 The Django deployment is already configured to pull from:
 ```
-gitea.remotelab.local/remotelab/django-app:latest
+gitea:3000/remotelab/django-app:latest
 ```
 
 However, since we're using `localhost` for the registry, we need to update it:
@@ -164,13 +164,13 @@ Or use the helper script:
 
 ## Troubleshooting
 
-### Issue: "dial tcp: lookup gitea.remotelab.local"
+### Issue: "dial tcp: lookup gitea:3000"
 
-**Solution:** The deployment is trying to use `gitea.remotelab.local` but DNS isn't configured.
+**Solution:** The deployment is trying to use `gitea:3000` but DNS isn't configured.
 
 Add to `/etc/hosts`:
 ```
-127.0.0.1 gitea.remotelab.local
+127.0.0.1 gitea:3000
 ```
 
 Or update the deployment to use `localhost` instead.
@@ -195,7 +195,7 @@ kubectl describe deployment/gitea -n applications | grep GITEA__packages
 
 1. **Set up CI/CD**: Configure Gitea Actions or ArgoCD Image Updater to automatically build and deploy on git push
 2. **Enable TLS**: Add proper certificates using cert-manager for production
-3. **Configure DNS**: Set up proper DNS resolution for `gitea.remotelab.local`
+3. **Configure DNS**: Set up proper DNS resolution for `gitea:3000`
 4. **Image Updater**: ArgoCD Image Updater is already configured to watch for new images
 
 ## Container Registry API Endpoints

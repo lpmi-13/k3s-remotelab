@@ -26,7 +26,7 @@ A sample Django REST API application designed for K3s remotelab CI/CD pipeline d
 
 1. **Clone the repository**:
    ```bash
-   git clone https://gitea.remotelab.local/remotelab/django-app.git
+   git clone https://gitea:3000/remotelab/django-app.git
    cd django-app
    ```
 
@@ -136,8 +136,8 @@ Configure these secrets in your Gitea repository:
 
 Images are stored in Gitea's built-in container registry:
 
-- **Registry URL**: `gitea.remotelab.local`
-- **Image Path**: `gitea.remotelab.local/[username]/django-app`
+- **Registry URL**: `gitea:3000`
+- **Image Path**: `gitea:3000/[username]/django-app`
 - **Tags**: `latest`, `main-[sha]`, `[branch-name]`
 
 ## Kubernetes Deployment
@@ -149,7 +149,7 @@ The application is deployed using ArgoCD with automatic image updates:
 ```yaml
 metadata:
   annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea.remotelab.local/remotelab/django-app:latest
+    argocd-image-updater.argoproj.io/image-list: django=gitea:3000/remotelab/django-app:latest
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/git-branch: main
 ```
