@@ -7,6 +7,8 @@ metadata:
     app: gitea
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: gitea
@@ -42,6 +44,8 @@ spec:
           value: "localhost"
         - name: GITEA__server__ROOT_URL
           value: "https://localhost/gitea/"
+        - name: GITEA__server__LOCAL_ROOT_URL
+          value: "http://gitea:3000/"
         - name: GITEA__metrics__ENABLED
           value: "true"
         - name: GITEA__metrics__TOKEN

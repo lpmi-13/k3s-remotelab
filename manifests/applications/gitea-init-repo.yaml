@@ -170,8 +170,77 @@ spec:
               sed -i 's/gitea\.remotelab\.local/gitea:3000/g' "$workflow_file"
               sed -i 's/gitea-registry\.local/gitea:3000/g' "$workflow_file"
               sed -i 's/localhost\/v2/gitea:3000/g' "$workflow_file"
-              echo "After update:"
-              grep -i "registry" "$workflow_file" | head -5
+
+              # Write a clean workflow file optimized for internal HTTP registry
+              cat > "$workflow_file" << 'WORKFLOW_EOF'
+          name: Build and Push Docker Image
+
+          on:
+            push:
+              branches: [main, develop]
+              tags: ['v*.*.*']
+            pull_request:
+              branches: [main]
+
+          env:
+            REGISTRY: gitea:3000
+            IMAGE_NAME: django-app
+
+          jobs:
+            test:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v4
+                  with:
+                    python-version: '3.11'
+                - name: Install and test
+                  env:
+                    FORCE_SCRIPT_NAME: ''
+                  run: |
+                    pip install -r requirements.txt
+                    python manage.py test
+
+            build-and-push:
+              needs: test
+              runs-on: ubuntu-latest
+              if: gitea.ref == 'refs/heads/main'
+              steps:
+                - uses: actions/checkout@v4
+
+                - name: Get version
+                  id: version
+                  run: |
+                    VERSION=$(grep "BASE_VERSION = " version.py | cut -d'"' -f2)
+                    echo "version=${VERSION}.${{ gitea.run_number }}" >> $GITHUB_OUTPUT
+
+                - name: Configure registry auth
+                  run: |
+                    mkdir -p ~/.docker
+                    AUTH=$(echo -n "${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" | base64 -w 0)
+                    echo "{\"auths\":{\"${{ env.REGISTRY }}\":{\"auth\":\"${AUTH}\"}}}" > ~/.docker/config.json
+
+                - name: Build image
+                  run: |
+                    IMAGE="${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}"
+                    docker build -t ${IMAGE}:${{ steps.version.outputs.version }} -t ${IMAGE}:latest .
+
+                - name: Push to registry
+                  run: |
+                    apt-get update -qq && apt-get install -y -qq skopeo > /dev/null
+                    IMAGE="${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}"
+                    skopeo copy --dest-tls-verify=false \
+                      --dest-creds="${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" \
+                      docker-daemon:${IMAGE}:${{ steps.version.outputs.version }} \
+                      docker://${IMAGE}:${{ steps.version.outputs.version }}
+                    skopeo copy --dest-tls-verify=false \
+                      --dest-creds="${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" \
+                      docker-daemon:${IMAGE}:latest \
+                      docker://${IMAGE}:latest
+          WORKFLOW_EOF
+
+              echo "Workflow file created:"
+              cat "$workflow_file"
             fi
           done
 
@@ -233,23 +302,24 @@ spec:
 
           API_TOKEN=$(echo "$TOKEN_RESPONSE" | grep -o '"sha1":"[^"]*"' | cut -d'"' -f4)
 
+          # Determine which credential to use for registry auth
           if [ -n "$API_TOKEN" ]; then
             echo "API token created successfully"
-            echo "Storing token as repository secret..."
-
-            # Try to create repository secret via API (if available in Gitea 1.20)
-            curl -X PUT "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME/actions/secrets/GITEA_TOKEN" \
-              -H "Content-Type: application/json" \
-              -u "$USERNAME:$PASSWORD" \
-              -d "{
-                \"data\": \"$API_TOKEN\"
-              }" 2>/dev/null && echo "Secret created successfully" || echo "Note: Secret creation via API not available, workflow will use actor credentials"
-
+            REGISTRY_CREDENTIAL="$API_TOKEN"
             echo "API_TOKEN=$API_TOKEN" > /tmp/gitea-token.txt
           else
-            echo "Warning: Could not create API token. Workflow will use actor credentials."
-            echo "The remotelab user credentials provide sufficient access for the workflow."
+            echo "Warning: Could not create API token. Using user password for registry auth."
+            REGISTRY_CREDENTIAL="$PASSWORD"
           fi
+
+          # Create the REGISTRY_TOKEN secret for workflow to use
+          echo "Creating REGISTRY_TOKEN secret for workflow..."
+          curl -X PUT "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME/actions/secrets/REGISTRY_TOKEN" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            -d "{
+              \"data\": \"$REGISTRY_CREDENTIAL\"
+            }" 2>/dev/null && echo "REGISTRY_TOKEN secret created successfully" || echo "Warning: Could not create secret"
 
           echo ""
           echo "=========================================="

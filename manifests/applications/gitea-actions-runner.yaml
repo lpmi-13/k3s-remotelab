@@ -1,4 +1,29 @@
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: act-runner-config
+  namespace: applications
+data:
+  config.yaml: |
+    log:
+      level: info
+    runner:
+      file: .runner
+      capacity: 1
+      timeout: 3h
+    cache:
+      enabled: true
+    container:
+      # Use host network so workflow containers can reach localhost:443 (nginx proxy)
+      network: "host"
+      privileged: false
+      options:
+      valid_volumes: []
+      docker_host: ""
+    host:
+      workdir_parent:
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: act-runner-pvc
@@ -58,11 +83,15 @@ spec:
           value: "k3s-runner"
         - name: DOCKER_HOST
           value: "unix:///var/run/docker.sock"
+        - name: CONFIG_FILE
+          value: "/config/config.yaml"
         volumeMounts:
         - name: runner-data
           mountPath: /data
         - name: docker-sock
           mountPath: /var/run
+        - name: runner-config
+          mountPath: /config
         resources:
           limits:
             cpu: 2
@@ -70,6 +99,39 @@ spec:
           requests:
             cpu: 500m
             memory: 1Gi
+      - name: localhost-proxy
+        image: nginx:alpine
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          apk add --no-cache openssl > /dev/null 2>&1
+          mkdir -p /certs
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /certs/tls.key -out /certs/tls.crt \
+            -subj "/CN=localhost" 2>/dev/null
+          cat > /etc/nginx/nginx.conf << 'NGINX'
+          events { worker_connections 1024; }
+          http {
+            server {
+              listen 443 ssl;
+              ssl_certificate /certs/tls.crt;
+              ssl_certificate_key /certs/tls.key;
+              location / {
+                proxy_pass http://gitea.applications.svc.cluster.local:3000;
+                proxy_set_header Host localhost;
+                proxy_set_header X-Forwarded-Proto https;
+              }
+            }
+          }
+          NGINX
+          nginx -g 'daemon off;'
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
       - name: dind
         image: docker:27-dind
         env:
@@ -79,6 +141,7 @@ spec:
         - dockerd
         - --host=unix:///var/run/docker.sock
         - --insecure-registry=gitea:3000
+        - --insecure-registry=localhost
         securityContext:
           privileged: true
         volumeMounts:
@@ -101,3 +164,6 @@ spec:
         emptyDir: {}
       - name: docker-sock
         emptyDir: {}
+      - name: runner-config
+        configMap:
+          name: act-runner-config
