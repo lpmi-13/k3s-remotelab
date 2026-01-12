@@ -1,10 +1,10 @@
 # K3s Remotelab
 
+A GitOps-driven, single-node K3s remotelab setup that's designed to be multi-node ready. This project includes ArgoCD as the core GitOps engine, Gitea for Git hosting, a Django REST Framework application, and a complete monitoring stack with Prometheus and Grafana.
+
 ![CI/CD Pipeline Flow](docs/cicd-pipeline-diagram.svg)
 
 ![K3s Remotelab Architecture](docs/architecture-diagram.svg)
-
-A GitOps-driven, single-node K3s remotelab setup that's designed to be multi-node ready. This project includes ArgoCD as the core GitOps engine, Gitea for Git hosting, a Django REST Framework application, and a complete monitoring stack with Prometheus and Grafana.
 
 ## Architecture
 
