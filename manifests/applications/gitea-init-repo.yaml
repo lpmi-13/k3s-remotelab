@@ -237,6 +237,26 @@ spec:
                       --dest-creds="${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" \
                       docker-daemon:${IMAGE}:latest \
                       docker://${IMAGE}:latest
+
+            security-scan:
+              needs: build-and-push
+              runs-on: ubuntu-latest
+              if: gitea.ref == 'refs/heads/main'
+              steps:
+                - name: Run Trivy vulnerability scanner
+                  run: |
+                    # Install trivy directly
+                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
+                    echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list
+                    apt-get update -qq
+                    apt-get install -y -qq trivy > /dev/null
+
+                    # Run scan on the image (no auth needed for insecure registry)
+                    trivy image --insecure --format table \
+                      --severity HIGH,CRITICAL \
+                      ${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}:latest || true
+
+                    echo "Trivy scan completed"
           WORKFLOW_EOF
 
               echo "Workflow file created:"
