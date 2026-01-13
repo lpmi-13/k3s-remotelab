@@ -6,7 +6,6 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: argocd-strip-argocd@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
@@ -22,13 +21,3 @@ spec:
             name: argocd-server
             port:
               number: 80
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-argocd
-  namespace: argocd
-spec:
-  stripPrefix:
-    prefixes:
-      - /argocd

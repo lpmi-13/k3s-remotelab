@@ -4,8 +4,8 @@ metadata:
   name: django-api
   namespace: argocd
   annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea:3000/remotelab/django-app
-    argocd-image-updater.argoproj.io/django.update-strategy: semver
+    argocd-image-updater.argoproj.io/image-list: django=gitea.applications.svc.cluster.local:3000/remotelab/django-app
+    argocd-image-updater.argoproj.io/django.update-strategy: semver:^1.0
     argocd-image-updater.argoproj.io/django.kustomize.image-name: ghcr.io/lpmi-13/k3s-remotelab-django
     argocd-image-updater.argoproj.io/write-back-method: git
     argocd-image-updater.argoproj.io/write-back-target: kustomization
@@ -15,9 +15,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://gitea:3000/remotelab/manifests.git
+    repoURL: http://gitea.applications.svc.cluster.local:3000/remotelab/manifests.git
     targetRevision: HEAD
-    path: manifests/applications/django/overlays/production
+    path: applications/django/overlays/production
   destination:
     server: https://kubernetes.default.svc
     namespace: applications

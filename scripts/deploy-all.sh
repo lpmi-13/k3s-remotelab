@@ -150,8 +150,8 @@ echo "  → Applying ArgoCD customizations..."
 kubectl apply -f manifests/gitops/argocd-cmd-params-cm.yaml
 kubectl apply -f manifests/gitops/argocd-ingress.yaml
 kubectl apply -f manifests/gitops/argocd-image-updater.yaml
-echo "  → Restarting ArgoCD server to pick up configuration..."
-kubectl rollout restart deployment/argocd-server -n argocd
+echo "  → Patching ArgoCD server for subpath support..."
+kubectl patch deployment argocd-server -n argocd --type='strategic' --patch-file manifests/gitops/argocd-server-patch.yaml
 kubectl wait --for=condition=available --timeout=120s deployment/argocd-server -n argocd
 echo "  ✓ ArgoCD configured"
 

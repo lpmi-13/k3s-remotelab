@@ -43,6 +43,12 @@ spec:
           mountPath: /app/.ssh
         - name: tmp
           mountPath: /tmp
+        - name: image-updater-config
+          mountPath: /app/config/registries.conf
+          subPath: registries.conf
+        - name: image-updater-config
+          mountPath: /app/config/git.config
+          subPath: git.config
         ports:
         - containerPort: 8080
         livenessProbe:
@@ -75,6 +81,9 @@ spec:
           optional: true
       - name: tmp
         emptyDir: {}
+      - name: image-updater-config
+        configMap:
+          name: argocd-image-updater-config
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -153,16 +162,16 @@ data:
   registries.conf: |
     registries:
     - name: Gitea Registry
-      prefix: gitea:3000
-      api_url: http://gitea.applications.svc.cluster.local:3000/api/v1
+      prefix: gitea.applications.svc.cluster.local:3000
+      api_url: http://gitea.applications.svc.cluster.local:3000
       ping: yes
       insecure: yes
-      credentials: secret:argocd/gitea-registry-creds#username#password
+      credentials: pullsecret:argocd/gitea-registry-creds
   git.config: |
     [user]
     name = ArgoCD Image Updater
     email = argocd-image-updater@remotelab.local
-  log.level: info
+  log.level: debug
   argocd.server_addr: argocd-server.argocd.svc.cluster.local:443
   argocd.insecure: "true"
   argocd.grpc_web: "false"
@@ -175,7 +184,16 @@ metadata:
   labels:
     app.kubernetes.io/name: argocd-image-updater
     app.kubernetes.io/part-of: argocd
-type: Opaque
+type: kubernetes.io/dockerconfigjson
 stringData:
-  username: "remotelab"
-  password: "remotelab"
+  .dockerconfigjson: |
+    {
+      "auths": {
+        "localhost:30300": {
+          "auth": "cmVtb3RlbGFiOnJlbW90ZWxhYg=="
+        },
+        "gitea.applications.svc.cluster.local:3000": {
+          "auth": "cmVtb3RlbGFiOnJlbW90ZWxhYg=="
+        }
+      }
+    }
