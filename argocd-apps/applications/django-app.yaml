@@ -3,6 +3,13 @@ kind: Application
 metadata:
   name: django-api
   namespace: argocd
+  annotations:
+    argocd-image-updater.argoproj.io/image-list: django=gitea:3000/remotelab/django-app
+    argocd-image-updater.argoproj.io/django.update-strategy: semver
+    argocd-image-updater.argoproj.io/django.kustomize.image-name: ghcr.io/lpmi-13/k3s-remotelab-django
+    argocd-image-updater.argoproj.io/write-back-method: git
+    argocd-image-updater.argoproj.io/write-back-target: kustomization
+    argocd-image-updater.argoproj.io/git-branch: main
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
@@ -10,16 +17,14 @@ spec:
   source:
     repoURL: https://gitea:3000/remotelab/manifests.git
     targetRevision: HEAD
-    path: manifests/applications
-    directory:
-      include: "{redis.yaml,django.yaml}"
+    path: manifests/applications/django/overlays/production
   destination:
     server: https://kubernetes.default.svc
     namespace: applications
   syncPolicy:
     automated:
       prune: true
-      selfHeal: false  # Manual sync for applications initially
+      selfHeal: true
     syncOptions:
     - CreateNamespace=true
   ignoreDifferences:

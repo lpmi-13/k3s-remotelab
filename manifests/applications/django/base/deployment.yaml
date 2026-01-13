@@ -5,11 +5,6 @@ metadata:
   namespace: applications
   labels:
     app: django
-  annotations:
-    argocd-image-updater.argoproj.io/image-list: django=gitea:3000/remotelab/django-app:1.x
-    argocd-image-updater.argoproj.io/django.update-strategy: semver
-    argocd-image-updater.argoproj.io/write-back-method: git
-    argocd-image-updater.argoproj.io/git-branch: main
 spec:
   replicas: 1
   selector:
@@ -24,6 +19,8 @@ spec:
         prometheus.io/port: "8000"
         prometheus.io/path: "/metrics"
     spec:
+      imagePullSecrets:
+      - name: gitea-registry-secret
       containers:
       - name: django
         image: ghcr.io/lpmi-13/k3s-remotelab-django:latest
@@ -63,31 +60,3 @@ spec:
       - name: django-storage
         persistentVolumeClaim:
           claimName: django-pvc
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: django-pvc
-  namespace: applications
-spec:
-  accessModes:
-    - ReadWriteOnce
-  storageClassName: local-path
-  resources:
-    requests:
-      storage: 2Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: django
-  namespace: applications
-  labels:
-    app: django
-spec:
-  selector:
-    app: django
-  ports:
-  - port: 8000
-    targetPort: 8000
-  type: ClusterIP

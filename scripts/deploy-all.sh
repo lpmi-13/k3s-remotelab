@@ -282,8 +282,8 @@ fi
 echo ""
 echo "Step 11: Deploying Django application..."
 echo "  → Initial deployment uses ghcr.io/lpmi-13/k3s-remotelab-django:latest"
-echo "  → After runner is working and workflow runs, ArgoCD will update to Gitea registry image"
-kubectl apply -f manifests/applications/django.yaml
+echo "  → After runner is working and workflow runs, ArgoCD Image Updater will switch to Gitea registry"
+kubectl apply -k manifests/applications/django/overlays/production
 
 echo ""
 echo "Step 12: Verifying Django deployment..."
