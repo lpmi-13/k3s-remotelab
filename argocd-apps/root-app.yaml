@@ -8,9 +8,11 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://gitea:3000/remotelab/manifests.git
+    repoURL: http://gitea.applications.svc.cluster.local:3000/remotelab/manifests.git
     targetRevision: HEAD
     path: argocd-apps
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd

@@ -67,7 +67,21 @@ spec:
             "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME")
 
           if [ "$REPO_CHECK" = "200" ]; then
-            echo "Repository already exists. Deleting for fresh initialization..."
+            echo "Repository already exists. Checking if it needs reinitialization..."
+
+            # Check if repository has the expected content (Django app and workflow)
+            REPO_CONTENT=$(curl -s -u "$USERNAME:$PASSWORD" "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME/contents")
+
+            if echo "$REPO_CONTENT" | grep -q "manage.py" && echo "$REPO_CONTENT" | grep -q ".gitea"; then
+              echo "Repository already has correct content. Skipping reinitialization."
+              echo "=========================================="
+              echo "Django app repository already initialized!"
+              echo "=========================================="
+              echo "Repository URL: $GITEA_URL/$USERNAME/$REPO_NAME"
+              exit 0
+            fi
+
+            echo "Repository exists but missing expected content. Deleting for fresh initialization..."
             curl -X DELETE "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME" \
               -u "$USERNAME:$PASSWORD" || {
                 echo "Failed to delete existing repository"
@@ -107,15 +121,17 @@ spec:
 
           # Clone with retry logic for network resilience
           clone_attempts=0
-          max_clone_attempts=3
-          until git clone "$GITHUB_REPO" "$CLONE_DIR"; do
+          max_clone_attempts=5
+          until git clone --depth 1 "$GITHUB_REPO" "$CLONE_DIR" 2>&1; do
             clone_attempts=$((clone_attempts + 1))
             if [ $clone_attempts -ge $max_clone_attempts ]; then
               echo "Failed to clone repository after $max_clone_attempts attempts"
+              echo "This may be due to network issues or GitHub rate limiting."
               exit 1
             fi
-            echo "Clone attempt $clone_attempts failed, retrying in 5 seconds..."
-            sleep 5
+            echo "Clone attempt $clone_attempts failed, retrying in 10 seconds..."
+            rm -rf "$CLONE_DIR" 2>/dev/null || true
+            sleep 10
           done
 
           echo "Successfully cloned repository from GitHub"
@@ -293,13 +309,24 @@ spec:
 
           # Pull the auto-initialized repo first, then merge
           echo "Pulling auto-initialized repository..."
-          git pull origin main --allow-unrelated-histories --no-edit || {
+          if git pull origin main --allow-unrelated-histories --no-edit 2>&1; then
+            echo "Successfully merged with existing repository"
+            # Now push our changes
+            if git push -u origin main 2>&1; then
+              echo "Successfully pushed to origin"
+            else
+              echo "Push failed after successful merge. This may indicate a concurrent modification."
+              exit 1
+            fi
+          else
             echo "Pull failed, attempting force push..."
-            git push -f -u origin main
-          }
-
-          # Now push our changes
-          git push -u origin main
+            if git push -f -u origin main 2>&1; then
+              echo "Successfully force pushed to origin"
+            else
+              echo "Force push failed. Repository may be locked or network issue."
+              exit 1
+            fi
+          fi
 
           echo "Repository initialized successfully!"
 

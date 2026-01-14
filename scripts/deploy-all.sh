@@ -44,6 +44,87 @@ switch_to_local_context || {
 }
 echo ""
 
+# Function to forcefully clean up a namespace by removing finalizers
+# This function ensures namespaces can always be deleted, even when stuck in Terminating state.
+# It handles:
+#   - Non-existent namespaces (no-op, returns success)
+#   - ArgoCD applications with finalizers (removes them before namespace deletion)
+#   - Any resource with finalizers that blocks namespace deletion
+#   - Namespaces stuck in Terminating state (patches namespace itself)
+#   - Timeout scenarios with final forced cleanup via API
+# Returns: 0 on success, 1 if manual intervention is needed (rare)
+force_delete_namespace() {
+    local namespace=$1
+    local max_wait=60
+    local waited=0
+
+    # Check if namespace exists
+    if ! kubectl get namespace "$namespace" &>/dev/null; then
+        return 0
+    fi
+
+    echo "  → Processing namespace: $namespace"
+
+    # First, remove finalizers from all ArgoCD applications if in argocd namespace
+    if [ "$namespace" = "argocd" ]; then
+        echo "    • Removing finalizers from ArgoCD applications..."
+        kubectl get applications.argoproj.io -n argocd -o name 2>/dev/null | \
+            xargs -I {} kubectl patch {} -n argocd -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+    fi
+
+    # Remove finalizers from common resources that block namespace deletion
+    echo "    • Removing finalizers from resources in $namespace..."
+
+    # Remove finalizers from all resources with finalizers in the namespace
+    for resource_type in $(kubectl api-resources --verbs=list --namespaced -o name 2>/dev/null | grep -v "events" || true); do
+        kubectl get "$resource_type" -n "$namespace" -o name 2>/dev/null | \
+            xargs -I {} kubectl patch {} -n "$namespace" -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+    done
+
+    # Delete the namespace (or it may already be deleting)
+    echo "    • Deleting namespace $namespace..."
+    kubectl delete namespace "$namespace" --ignore-not-found=true --wait=false 2>/dev/null || true
+
+    # Check if namespace is stuck in Terminating state
+    sleep 2
+    if kubectl get namespace "$namespace" -o jsonpath='{.status.phase}' 2>/dev/null | grep -q "Terminating"; then
+        echo "    • Namespace stuck in Terminating state, forcing cleanup..."
+
+        # Remove finalizers from the namespace itself
+        kubectl patch namespace "$namespace" -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+
+        # Try to remove spec.finalizers if they exist
+        kubectl patch namespace "$namespace" -p '{"spec":{"finalizers":null}}' --type=merge 2>/dev/null || true
+    fi
+
+    # Wait for namespace to be fully deleted
+    echo "    • Waiting for namespace deletion..."
+    while kubectl get namespace "$namespace" &>/dev/null; do
+        if [ $waited -ge $max_wait ]; then
+            echo "    ⚠ Warning: Namespace $namespace still exists after ${max_wait}s"
+            echo "    • Attempting final forced cleanup..."
+
+            # Last resort: try to delete the namespace by removing all finalizers via API
+            kubectl get namespace "$namespace" -o json 2>/dev/null | \
+                jq '.spec.finalizers = [] | .metadata.finalizers = []' | \
+                kubectl replace --raw "/api/v1/namespaces/$namespace/finalize" -f - 2>/dev/null || true
+
+            sleep 5
+            if kubectl get namespace "$namespace" &>/dev/null; then
+                echo "    ⚠ Warning: Could not force delete namespace $namespace"
+                echo "    • Manual intervention may be required"
+                return 1
+            fi
+            break
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    echo "    ✓ Namespace $namespace deleted"
+    return 0
+}
+
 # Check if any resources exist and clean up for idempotent deployment
 if [ "$SKIP_CLEANUP" = false ]; then
     echo "Step 0: Checking for existing resources..."
@@ -63,26 +144,15 @@ if [ "$SKIP_CLEANUP" = false ]; then
         echo "  → Deleting initialization jobs..."
         kubectl delete job gitea-init-user -n applications --ignore-not-found=true --wait=false 2>/dev/null || true
         kubectl delete job gitea-init-repo -n applications --ignore-not-found=true --wait=false 2>/dev/null || true
+        kubectl delete job gitea-init-manifests -n applications --ignore-not-found=true --wait=false 2>/dev/null || true
 
-        # Delete applications first (to allow graceful shutdown)
-        echo "  → Deleting applications..."
-        kubectl delete namespace applications --ignore-not-found=true --wait=false
+        # Force delete namespaces with finalizer removal
+        echo "  → Force deleting namespaces (removing finalizers)..."
 
-        # Delete monitoring
-        echo "  → Deleting monitoring stack..."
-        kubectl delete namespace monitoring --ignore-not-found=true --wait=false
-
-        # Delete ArgoCD
-        echo "  → Deleting ArgoCD..."
-        kubectl delete namespace argocd --ignore-not-found=true --wait=false
-
-        # Wait for namespaces to be fully deleted
-        echo "  → Waiting for namespaces to be deleted (this may take a minute)..."
-        while kubectl get namespace argocd &>/dev/null || \
-              kubectl get namespace applications &>/dev/null || \
-              kubectl get namespace monitoring &>/dev/null; do
-            sleep 2
-        done
+        # Delete in reverse order of dependencies
+        force_delete_namespace "applications"
+        force_delete_namespace "monitoring"
+        force_delete_namespace "argocd"
 
         # Clean up any orphaned PVCs (they can persist after namespace deletion)
         echo "  → Cleaning up orphaned persistent volumes..."
@@ -246,21 +316,35 @@ kubectl wait --for=condition=ready --timeout=60s pod -l app=act-runner -n applic
 echo "  ✓ Gitea Actions runner deployed and registered"
 
 echo ""
-echo "Step 10: Initializing Django app repository in Gitea..."
+echo "Step 10: Initializing repositories in Gitea..."
 
-# Delete old repository initialization job if it exists (for idempotency)
+# Delete old repository initialization jobs if they exist (for idempotency)
 kubectl delete job gitea-init-repo -n applications --ignore-not-found=true 2>/dev/null || true
+kubectl delete job gitea-init-manifests -n applications --ignore-not-found=true 2>/dev/null || true
 sleep 2
 
-echo "  → Creating repository and cloning Django app code from GitHub..."
+echo "  → Creating manifests repository..."
+kubectl apply -f manifests/applications/gitea-init-manifests.yaml
+
+echo "  → Creating Django app repository..."
 kubectl apply -f manifests/applications/gitea-init-repo.yaml
 
-echo "  → Waiting for repository initialization (this may take a minute)..."
+echo "  → Waiting for manifests repository initialization (this may take a minute)..."
+kubectl wait --for=condition=complete --timeout=180s job/gitea-init-manifests -n applications 2>/dev/null || {
+    echo "  ⚠️  Manifests repository initialization did not complete in time. Checking logs..."
+    kubectl logs -n applications job/gitea-init-manifests --tail=40 2>/dev/null || true
+    echo ""
+    echo "  ❌ Failed to initialize manifests repository. Cannot proceed without ArgoCD source."
+    exit 1
+}
+echo "  ✓ Manifests repository initialized in Gitea"
+
+echo "  → Waiting for Django app repository initialization (this may take a minute)..."
 kubectl wait --for=condition=complete --timeout=180s job/gitea-init-repo -n applications 2>/dev/null || {
-    echo "  ⚠️  Repository initialization did not complete in time. Checking logs..."
+    echo "  ⚠️  Django app repository initialization did not complete in time. Checking logs..."
     kubectl logs -n applications job/gitea-init-repo --tail=40 2>/dev/null || true
     echo ""
-    echo "  ❌ Failed to initialize repository. Cannot proceed without Django image."
+    echo "  ❌ Failed to initialize Django app repository. Cannot proceed without Django image."
     exit 1
 }
 echo "  ✓ Django app repository initialized in Gitea"
@@ -296,6 +380,30 @@ kubectl wait --for=condition=available --timeout=600s deployment/django -n appli
 echo "  ✓ Django application deployed"
 
 echo ""
+echo "Step 13: Deploying ArgoCD Applications..."
+echo "  → Deploying ArgoCD applications from local manifests..."
+kubectl apply -f argocd-apps/
+
+echo "  → Waiting for ArgoCD applications to be created..."
+sleep 5
+
+echo "  → Patching root-app to ensure it uses correct repository URL..."
+# Ensure root-app uses the internal service URL and has directory recurse enabled
+kubectl patch application root-app -n argocd --type merge -p '{"spec":{"source":{"repoURL":"http://gitea.applications.svc.cluster.local:3000/remotelab/manifests.git","directory":{"recurse":true}}}}'
+
+echo "  → Waiting for root-app to sync..."
+sleep 10
+
+echo "  → Checking ArgoCD application status..."
+kubectl get applications -n argocd || {
+    echo "  ⚠ Warning: Could not list ArgoCD applications"
+}
+echo "  ✓ ArgoCD applications deployed"
+
+echo "  → Note: ArgoCD applications will now sync from Gitea repository"
+echo "  → ArgoCD will manage future updates automatically"
+
+echo ""
 echo "========================================"
 echo "  Deployment Complete!"
 echo "========================================"
@@ -327,6 +435,12 @@ echo "Container Registry (Gitea):"
 echo "  - Registry: gitea:3000"
 echo "  - Django image: gitea:3000/remotelab/django-app:1.0.1"
 echo "  - Repository: https://localhost/gitea/remotelab/django-app"
+echo ""
+echo "GitOps Configuration:"
+echo "  - Manifests repository: https://localhost/gitea/remotelab/manifests"
+echo "  - ArgoCD is configured to sync from Gitea"
+echo "  - View applications: https://localhost/argocd"
+echo "  - Check sync status: kubectl get applications -n argocd"
 echo ""
 echo "CI/CD Pipeline (Gitea Actions):"
 echo "  - Django app repository created with automated image pull/push workflow"

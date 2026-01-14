@@ -1,0 +1,250 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitea-init-manifests
+  namespace: applications
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: gitea-init-manifests
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+      - name: wait-for-gitea
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for Gitea to be ready..."
+          attempts=0
+          max_attempts=60
+          until curl -sf http://gitea:3000/api/healthz > /dev/null; do
+            attempts=$((attempts + 1))
+            if [ $attempts -ge $max_attempts ]; then
+              echo "Gitea failed to become ready after $max_attempts attempts"
+              exit 1
+            fi
+            echo "Gitea not ready yet, waiting... (attempt $attempts/$max_attempts)"
+            sleep 5
+          done
+          echo "Gitea is ready!"
+          sleep 5
+      containers:
+      - name: init-manifests
+        image: alpine/git:latest
+        command:
+        - sh
+        - -c
+        - |
+          set -ex
+
+          # Install curl and jq for API calls
+          apk add --no-cache curl jq
+
+          echo "=========================================="
+          echo "Initializing Manifests Repository"
+          echo "=========================================="
+
+          GITEA_URL="http://gitea:3000"
+          USERNAME="remotelab"
+          PASSWORD="remotelab"
+          REPO_NAME="manifests"
+
+          # Check if repository exists
+          echo "Checking if repository exists..."
+          REPO_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME")
+
+          if [ "$REPO_CHECK" = "200" ]; then
+            echo "Repository already exists. Checking if it needs reinitialization..."
+
+            # Check if repository has the expected content (manifests and argocd-apps directories)
+            REPO_CONTENT=$(curl -s -u "$USERNAME:$PASSWORD" "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME/contents")
+
+            if echo "$REPO_CONTENT" | grep -q "manifests" && echo "$REPO_CONTENT" | grep -q "argocd-apps"; then
+              echo "Repository already has correct content. Skipping reinitialization."
+              echo "=========================================="
+              echo "Manifests repository already initialized!"
+              echo "=========================================="
+              echo "Repository URL: $GITEA_URL/$USERNAME/$REPO_NAME"
+              exit 0
+            fi
+
+            echo "Repository exists but missing expected content. Deleting for fresh initialization..."
+            curl -X DELETE "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME" \
+              -u "$USERNAME:$PASSWORD" || {
+                echo "Failed to delete existing repository"
+                exit 1
+              }
+            sleep 3
+          fi
+
+          # Create repository under user account
+          echo "Creating repository '$REPO_NAME' for user '$USERNAME'..."
+          CREATE_RESPONSE=$(curl -X POST "$GITEA_URL/api/v1/user/repos" \
+            -H "Content-Type: application/json" \
+            -u "$USERNAME:$PASSWORD" \
+            -d "{
+              \"name\": \"$REPO_NAME\",
+              \"description\": \"Kubernetes manifests and ArgoCD applications\",
+              \"private\": false,
+              \"auto_init\": true,
+              \"default_branch\": \"main\"
+            }")
+
+          echo "Repository creation response: $CREATE_RESPONSE"
+
+          # Wait a moment for repository to be fully initialized
+          sleep 5
+
+          # Configure git
+          git config --global user.email "remotelab@localhost.local"
+          git config --global user.name "Remotelab"
+          git config --global init.defaultBranch main
+
+          # Clone the source code from GitHub to get manifests
+          echo "Cloning repository from GitHub to get manifests..."
+          GITHUB_REPO="https://github.com/lpmi-13/k3s-remotelab.git"
+          CLONE_DIR="/tmp/source"
+          REPO_DIR="/workspace/repo"
+
+          # Clone with retry logic for network resilience
+          clone_attempts=0
+          max_clone_attempts=5
+          until git clone --depth 1 "$GITHUB_REPO" "$CLONE_DIR" 2>&1; do
+            clone_attempts=$((clone_attempts + 1))
+            if [ $clone_attempts -ge $max_clone_attempts ]; then
+              echo "Failed to clone repository after $max_clone_attempts attempts"
+              echo "This may be due to network issues or GitHub rate limiting."
+              exit 1
+            fi
+            echo "Clone attempt $clone_attempts failed, retrying in 10 seconds..."
+            rm -rf "$CLONE_DIR" 2>/dev/null || true
+            sleep 10
+          done
+
+          echo "Successfully cloned repository from GitHub"
+
+          # Prepare repository directory with manifests
+          echo "Extracting manifests and ArgoCD apps from repository..."
+          mkdir -p "$REPO_DIR"
+
+          # Copy manifests directory
+          if [ ! -d "$CLONE_DIR/manifests" ]; then
+            echo "Error: manifests directory not found in cloned repository"
+            echo "Contents of clone directory:"
+            ls -la "$CLONE_DIR/"
+            exit 1
+          fi
+
+          cp -r "$CLONE_DIR/manifests" "$REPO_DIR/"
+          echo "Copied manifests directory"
+
+          # Copy argocd-apps directory
+          if [ ! -d "$CLONE_DIR/argocd-apps" ]; then
+            echo "Error: argocd-apps directory not found in cloned repository"
+            echo "Contents of clone directory:"
+            ls -la "$CLONE_DIR/"
+            exit 1
+          fi
+
+          cp -r "$CLONE_DIR/argocd-apps" "$REPO_DIR/"
+          echo "Copied argocd-apps directory"
+
+          # Update ArgoCD app sources to use http instead of https for internal access
+          echo "Updating ArgoCD application sources to use internal HTTP URLs..."
+          find "$REPO_DIR/argocd-apps" -name "*.yaml" -type f -exec sed -i 's|https://gitea:3000|http://gitea.applications.svc.cluster.local:3000|g' {} \;
+          find "$REPO_DIR/argocd-apps" -name "*.yaml" -type f -exec sed -i 's|repoURL: gitea:3000|repoURL: http://gitea.applications.svc.cluster.local:3000|g' {} \;
+
+          # Verify root-app.yaml has directory recursion enabled
+          echo "Verifying root-app.yaml has directory recursion enabled..."
+          if ! grep -q "recurse: true" "$REPO_DIR/argocd-apps/root-app.yaml"; then
+            echo "Adding directory recursion to root-app.yaml..."
+            # Use a more robust approach with awk to add the directory section
+            awk '/path: argocd-apps/ { print; print "    directory:"; print "      recurse: true"; next }1' \
+              "$REPO_DIR/argocd-apps/root-app.yaml" > "$REPO_DIR/argocd-apps/root-app.yaml.tmp"
+            mv "$REPO_DIR/argocd-apps/root-app.yaml.tmp" "$REPO_DIR/argocd-apps/root-app.yaml"
+          else
+            echo "Directory recursion already enabled in root-app.yaml"
+          fi
+
+          # Also ensure manifests/applications/django paths are correct
+          echo "Verifying application path references..."
+          cd "$REPO_DIR"
+
+          # Create a README for the repository
+          cat > README.md <<'EOF'
+          # Kubernetes Manifests Repository
+
+          This repository contains Kubernetes manifests and ArgoCD applications for the remotelab cluster.
+
+          ## Structure
+
+          - manifests/ - Kubernetes resource definitions
+            - applications/ - Application deployments (Gitea, Django, PostgreSQL, Redis)
+            - gitops/ - ArgoCD configuration
+            - infrastructure/ - Infrastructure components (ingress)
+            - monitoring/ - Monitoring stack (Prometheus, Grafana)
+
+          - argocd-apps/ - ArgoCD Application definitions
+            - applications/ - Application ArgoCD apps
+            - infrastructure/ - Infrastructure ArgoCD apps
+            - root-app.yaml - Root ArgoCD application (App of Apps pattern)
+
+          ## Usage
+
+          This repository is automatically synchronized by ArgoCD. Changes pushed to the main branch will be automatically applied to the cluster.
+          EOF
+
+          echo "Repository contents:"
+          ls -la "$REPO_DIR/"
+
+          # Initialize git repository
+          echo "Initializing git repository..."
+          git init
+          git add -A
+          echo "Files staged for commit:"
+          git status
+          git commit -m "Initial commit with Kubernetes manifests and ArgoCD applications"
+
+          # Push to Gitea
+          REPO_URL="http://$USERNAME:$PASSWORD@gitea:3000/$USERNAME/$REPO_NAME.git"
+          echo "Pushing manifests to Gitea repository..."
+          git remote add origin "$REPO_URL"
+
+          # Pull the auto-initialized repo first, then merge
+          echo "Pulling auto-initialized repository..."
+          if git pull origin main --allow-unrelated-histories --no-edit 2>&1; then
+            echo "Successfully merged with existing repository"
+            # Now push our changes
+            if git push -u origin main 2>&1; then
+              echo "Successfully pushed to origin"
+            else
+              echo "Push failed after successful merge. This may indicate a concurrent modification."
+              exit 1
+            fi
+          else
+            echo "Pull failed, attempting force push..."
+            if git push -f -u origin main 2>&1; then
+              echo "Successfully force pushed to origin"
+            else
+              echo "Force push failed. Repository may be locked or network issue."
+              exit 1
+            fi
+          fi
+
+          echo ""
+          echo "=========================================="
+          echo "Manifests repository initialization complete!"
+          echo "=========================================="
+          echo "Repository URL: $GITEA_URL/$USERNAME/$REPO_NAME"
+          echo "ArgoCD can now sync from this repository"
+          echo "=========================================="
