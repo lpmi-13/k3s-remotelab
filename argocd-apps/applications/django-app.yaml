@@ -17,7 +17,7 @@ spec:
   source:
     repoURL: http://gitea.applications.svc.cluster.local:3000/remotelab/manifests.git
     targetRevision: HEAD
-    path: applications/django/overlays/production
+    path: manifests/applications/django/overlays/production
   destination:
     server: https://kubernetes.default.svc
     namespace: applications
