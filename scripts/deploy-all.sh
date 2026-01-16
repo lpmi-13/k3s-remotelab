@@ -146,6 +146,13 @@ if [ "$SKIP_CLEANUP" = false ]; then
         kubectl delete job gitea-init-repo -n applications --ignore-not-found=true --wait=false 2>/dev/null || true
         kubectl delete job gitea-init-manifests -n applications --ignore-not-found=true --wait=false 2>/dev/null || true
 
+        # Explicitly delete PVCs to trigger storage cleanup
+        echo "  → Deleting PVCs to cleanup persistent storage..."
+        kubectl delete pvc gitea-pvc -n applications --ignore-not-found=true --wait=true --timeout=30s 2>/dev/null || true
+        kubectl delete pvc postgres-pvc -n applications --ignore-not-found=true --wait=true --timeout=30s 2>/dev/null || true
+        kubectl delete pvc redis-data -n applications --ignore-not-found=true --wait=true --timeout=30s 2>/dev/null || true
+        sleep 3  # Give local-path-provisioner time to cleanup storage directories
+
         # Force delete namespaces with finalizer removal
         echo "  → Force deleting namespaces (removing finalizers)..."
 
