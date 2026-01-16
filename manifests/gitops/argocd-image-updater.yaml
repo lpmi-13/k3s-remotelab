@@ -17,6 +17,10 @@ spec:
         app.kubernetes.io/name: argocd-image-updater
     spec:
       serviceAccountName: argocd-image-updater
+      hostAliases:
+      - ip: "10.43.84.83"  # Traefik ingress ClusterIP
+        hostnames:
+        - "localhost"
       containers:
       - name: argocd-image-updater
         image: quay.io/argoprojlabs/argocd-image-updater:v0.12.2
@@ -164,9 +168,10 @@ data:
     - name: Gitea Registry
       prefix: gitea.applications.svc.cluster.local:3000
       api_url: http://gitea.applications.svc.cluster.local:3000
-      ping: yes
+      ping: no
       insecure: yes
       credentials: pullsecret:argocd/gitea-registry-creds
+      default: yes
   git.config: |
     [user]
     name = ArgoCD Image Updater
@@ -197,3 +202,16 @@ stringData:
         }
       }
     }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitea-registry-basic-auth
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: argocd-image-updater
+    app.kubernetes.io/part-of: argocd
+type: Opaque
+stringData:
+  username: remotelab
+  password: remotelab
