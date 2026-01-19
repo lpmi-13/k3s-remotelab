@@ -21,9 +21,23 @@ spec:
     spec:
       imagePullSecrets:
       - name: gitea-registry-secret
+      initContainers:
+      - name: wait-for-image
+        image: curlimages/curl:latest
+        command:
+        - sh
+        - -c
+        - |
+          echo "Waiting for django-app image in Gitea registry..."
+          until curl -sf -u remotelab:remotelab \
+            http://gitea.applications.svc.cluster.local:3000/v2/remotelab/django-app/manifests/latest > /dev/null 2>&1; do
+            echo "Image not available yet, waiting..."
+            sleep 5
+          done
+          echo "Image is available!"
       containers:
       - name: django
-        image: ghcr.io/lpmi-13/k3s-remotelab-django:latest
+        image: gitea.applications.svc.cluster.local:3000/remotelab/django-app:latest
         imagePullPolicy: Always
         env:
         - name: REDIS_URL

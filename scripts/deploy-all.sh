@@ -153,6 +153,18 @@ if [ "$SKIP_CLEANUP" = false ]; then
         kubectl delete pvc redis-data -n applications --ignore-not-found=true --wait=true --timeout=30s 2>/dev/null || true
         sleep 3  # Give local-path-provisioner time to cleanup storage directories
 
+        # Delete Gitea repositories via API to ensure fresh state
+        echo "  → Deleting Gitea repositories..."
+        if curl -sf -o /dev/null http://localhost:30300/api/v1/version 2>/dev/null; then
+            curl -X DELETE "http://localhost:30300/api/v1/repos/remotelab/manifests" \
+                -u "remotelab:remotelab" --connect-timeout 5 2>/dev/null || true
+            curl -X DELETE "http://localhost:30300/api/v1/repos/remotelab/django-app" \
+                -u "remotelab:remotelab" --connect-timeout 5 2>/dev/null || true
+            echo "  ✓ Gitea repositories deleted"
+        else
+            echo "  ✓ Gitea not running, skipping repo deletion"
+        fi
+
         # Force delete namespaces with finalizer removal
         echo "  → Force deleting namespaces (removing finalizers)..."
 
