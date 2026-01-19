@@ -166,7 +166,7 @@ data:
   registries.conf: |
     registries:
     - name: Gitea Registry
-      prefix: gitea.applications.svc.cluster.local:3000
+      prefix: localhost:30300
       api_url: http://gitea.applications.svc.cluster.local:3000
       ping: no
       insecure: yes

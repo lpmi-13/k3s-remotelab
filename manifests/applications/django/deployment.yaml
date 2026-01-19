@@ -37,7 +37,7 @@ spec:
           echo "Image is available!"
       containers:
       - name: django
-        image: gitea.applications.svc.cluster.local:3000/remotelab/django-app:latest
+        image: localhost:30300/remotelab/django-app:latest
         imagePullPolicy: Always
         env:
         - name: REDIS_URL
