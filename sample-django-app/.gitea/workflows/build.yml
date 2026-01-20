@@ -65,8 +65,9 @@ jobs:
       - name: Configure Docker credentials
         run: |
           # Create docker config directly to bypass token auth flow
+          # Using remotelab user credentials (lab environment)
           mkdir -p ~/.docker
-          AUTH=$(echo -n "${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" | base64 -w 0)
+          AUTH=$(echo -n "remotelab:remotelab" | base64 -w 0)
           cat > ~/.docker/config.json << EOF
           {
             "auths": {
@@ -100,13 +101,13 @@ jobs:
         run: |
           # Install skopeo (handles auth without token flow issues)
           apt-get update -qq && apt-get install -y -qq skopeo > /dev/null
-          # Push images using skopeo with explicit credentials
+          # Push images using skopeo with explicit credentials (lab environment)
           skopeo copy --dest-tls-verify=false \
-            --dest-creds="${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" \
+            --dest-creds="remotelab:remotelab" \
             docker-daemon:${{ steps.meta.outputs.image }}:${{ steps.version.outputs.semver }} \
             docker://${{ steps.meta.outputs.image }}:${{ steps.version.outputs.semver }}
           skopeo copy --dest-tls-verify=false \
-            --dest-creds="${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" \
+            --dest-creds="remotelab:remotelab" \
             docker-daemon:${{ steps.meta.outputs.image }}:latest \
             docker://${{ steps.meta.outputs.image }}:latest
           echo "Images pushed successfully"
@@ -177,8 +178,9 @@ jobs:
 
       - name: Login to OCI registry
         run: |
-          echo "${{ secrets.REGISTRY_TOKEN }}" | helm registry login ${{ env.REGISTRY }} \
-            --username ${{ gitea.actor }} \
+          # Using remotelab user credentials (lab environment)
+          echo "remotelab" | helm registry login ${{ env.REGISTRY }} \
+            --username remotelab \
             --password-stdin \
             --insecure
 
