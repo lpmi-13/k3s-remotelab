@@ -269,9 +269,13 @@ spec:
                     VERSION=$(grep "BASE_VERSION = " version.py | cut -d'"' -f2)
                     echo "version=${VERSION}.${{ gitea.run_number }}" >> $GITHUB_OUTPUT
 
-                - name: Install Helm
+                - name: Install Helm and oras
                   run: |
                     curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+                    # Install oras for OCI push (handles auth better)
+                    curl -LO https://github.com/oras-project/oras/releases/download/v1.1.0/oras_1.1.0_linux_amd64.tar.gz
+                    tar -xzf oras_1.1.0_linux_amd64.tar.gz
+                    mv oras /usr/local/bin/
 
                 - name: Update Chart metadata
                   run: |
@@ -287,20 +291,17 @@ spec:
                     cd chart
                     helm package django-app
 
-                - name: Login to OCI registry
-                  run: |
-                    # Using remotelab credentials (lab environment)
-                    echo "remotelab" | helm registry login ${{ env.REGISTRY }} \
-                      --username remotelab \
-                      --password-stdin \
-                      --insecure
-
                 - name: Push Helm chart to OCI registry
                   run: |
                     cd chart
-                    helm push django-app-0.1.${{ gitea.run_number }}.tgz \
-                      oci://${{ env.REGISTRY }}/remotelab \
-                      --insecure-skip-tls-verify
+                    # Use oras with basic auth (bypasses OAuth2 token flow)
+                    oras push ${{ env.REGISTRY }}/remotelab/django-app:0.1.${{ gitea.run_number }} \
+                      --plain-http \
+                      --username remotelab \
+                      --password remotelab \
+                      --artifact-type application/vnd.cncf.helm.config.v1+json \
+                      django-app-0.1.${{ gitea.run_number }}.tgz:application/vnd.cncf.helm.chart.content.v1.tar+gzip
+                    echo "Helm chart pushed to OCI registry"
 
             security-scan:
               needs: build-and-push
