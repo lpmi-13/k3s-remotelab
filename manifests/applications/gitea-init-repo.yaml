@@ -233,7 +233,8 @@ spec:
                 - name: Configure registry auth
                   run: |
                     mkdir -p ~/.docker
-                    AUTH=$(echo -n "${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" | base64 -w 0)
+                    # Using remotelab credentials (lab environment)
+                    AUTH=$(echo -n "remotelab:remotelab" | base64 -w 0)
                     echo "{\"auths\":{\"${{ env.REGISTRY }}\":{\"auth\":\"${AUTH}\"}}}" > ~/.docker/config.json
 
                 - name: Build image
@@ -245,14 +246,61 @@ spec:
                   run: |
                     apt-get update -qq && apt-get install -y -qq skopeo > /dev/null
                     IMAGE="${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}"
+                    # Using remotelab credentials (lab environment)
                     skopeo copy --dest-tls-verify=false \
-                      --dest-creds="${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" \
+                      --dest-creds="remotelab:remotelab" \
                       docker-daemon:${IMAGE}:${{ steps.version.outputs.version }} \
                       docker://${IMAGE}:${{ steps.version.outputs.version }}
                     skopeo copy --dest-tls-verify=false \
-                      --dest-creds="${{ gitea.actor }}:${{ secrets.REGISTRY_TOKEN }}" \
+                      --dest-creds="remotelab:remotelab" \
                       docker-daemon:${IMAGE}:latest \
                       docker://${IMAGE}:latest
+
+            package-and-push-helm:
+              needs: build-and-push
+              runs-on: ubuntu-latest
+              if: gitea.ref == 'refs/heads/main'
+              steps:
+                - uses: actions/checkout@v4
+
+                - name: Get version
+                  id: version
+                  run: |
+                    VERSION=$(grep "BASE_VERSION = " version.py | cut -d'"' -f2)
+                    echo "version=${VERSION}.${{ gitea.run_number }}" >> $GITHUB_OUTPUT
+
+                - name: Install Helm
+                  run: |
+                    curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+                - name: Update Chart metadata
+                  run: |
+                    cd chart/django-app
+                    sed -i "s/^version:.*/version: 0.1.${{ gitea.run_number }}/" Chart.yaml
+                    sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" Chart.yaml
+                    sed -i "s/tag: .*/tag: ${{ steps.version.outputs.version }}/" values.yaml
+                    echo "Updated Chart.yaml:"
+                    cat Chart.yaml
+
+                - name: Package Helm chart
+                  run: |
+                    cd chart
+                    helm package django-app
+
+                - name: Login to OCI registry
+                  run: |
+                    # Using remotelab credentials (lab environment)
+                    echo "remotelab" | helm registry login ${{ env.REGISTRY }} \
+                      --username remotelab \
+                      --password-stdin \
+                      --insecure
+
+                - name: Push Helm chart to OCI registry
+                  run: |
+                    cd chart
+                    helm push django-app-0.1.${{ gitea.run_number }}.tgz \
+                      oci://${{ env.REGISTRY }}/remotelab \
+                      --insecure-skip-tls-verify
 
             security-scan:
               needs: build-and-push
@@ -261,18 +309,13 @@ spec:
               steps:
                 - name: Run Trivy vulnerability scanner
                   run: |
-                    # Install trivy directly
                     wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
                     echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list
                     apt-get update -qq
                     apt-get install -y -qq trivy > /dev/null
-
-                    # Run scan on the image (no auth needed for insecure registry)
                     trivy image --insecure --format table \
                       --severity HIGH,CRITICAL \
                       ${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}:latest || true
-
-                    echo "Trivy scan completed"
           WORKFLOW_EOF
 
               echo "Workflow file created:"
