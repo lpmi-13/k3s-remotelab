@@ -130,3 +130,62 @@ jobs:
             ${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}:latest || true
 
           echo "Trivy scan completed"
+
+  package-and-push-helm:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: gitea.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          # Extract base version from version.py
+          BASE_VERSION=$(grep "BASE_VERSION = " version.py | cut -d'"' -f2)
+          # Create semantic version using build number
+          SEMVER="${BASE_VERSION}.${{ gitea.run_number }}"
+          echo "semver=${SEMVER}" >> $GITHUB_OUTPUT
+          echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+          echo "Helm chart version: 0.1.${{ gitea.run_number }}"
+          echo "App version: ${SEMVER}"
+
+      - name: Install Helm
+        run: |
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      - name: Update Chart metadata
+        run: |
+          cd chart/django-app
+          # Update Chart.yaml version and appVersion
+          sed -i "s/^version:.*/version: 0.1.${{ gitea.run_number }}/" Chart.yaml
+          sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.semver }}\"/" Chart.yaml
+          # Update values.yaml image tag
+          sed -i "s/tag: .*/tag: ${{ steps.version.outputs.semver }}/" values.yaml
+          echo "Updated Chart.yaml and values.yaml:"
+          cat Chart.yaml
+          echo "---"
+          grep "tag:" values.yaml
+
+      - name: Package Helm chart
+        run: |
+          cd chart
+          helm package django-app
+          echo "Packaged charts:"
+          ls -la *.tgz
+
+      - name: Login to OCI registry
+        run: |
+          echo "${{ secrets.REGISTRY_TOKEN }}" | helm registry login ${{ env.REGISTRY }} \
+            --username ${{ gitea.actor }} \
+            --password-stdin \
+            --insecure
+
+      - name: Push Helm chart to OCI registry
+        run: |
+          cd chart
+          helm push django-app-0.1.${{ gitea.run_number }}.tgz \
+            oci://${{ env.REGISTRY }}/remotelab \
+            --insecure-skip-tls-verify
+          echo "Helm chart pushed successfully to oci://${{ env.REGISTRY }}/remotelab/django-app:0.1.${{ gitea.run_number }}"

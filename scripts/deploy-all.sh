@@ -249,7 +249,7 @@ echo "  ✓ ArgoCD ready"
 echo "  → Applying ArgoCD customizations..."
 kubectl apply -f manifests/gitops/argocd-cmd-params-cm.yaml
 kubectl apply -f manifests/gitops/argocd-ingress.yaml
-kubectl apply -f manifests/gitops/argocd-image-updater.yaml
+kubectl apply -f manifests/gitops/argocd-oci-secret.yaml
 echo "  → Patching ArgoCD server for subpath support..."
 kubectl patch deployment argocd-server -n argocd --type='strategic' --patch-file manifests/gitops/argocd-server-patch.yaml
 kubectl wait --for=condition=available --timeout=120s deployment/argocd-server -n argocd
@@ -394,23 +394,13 @@ else
 fi
 
 echo ""
-echo "Step 11: Deploying Django application..."
-echo "  → Deployment will wait for first image to be built in Gitea registry"
-echo "  → Init container polls registry until image is available"
-kubectl apply -f manifests/applications/django/
+echo "Step 11: Django will be deployed via ArgoCD from OCI Helm chart..."
+echo "  → ArgoCD will automatically deploy Django from the OCI chart repository"
+echo "  → The initial Helm chart was pushed during repository initialization"
+echo "  → No direct kubectl apply needed - ArgoCD manages the deployment"
 
 echo ""
-echo "Step 12: Verifying Django deployment..."
-echo "  → Waiting for Django (may take a few minutes)..."
-kubectl wait --for=condition=available --timeout=600s deployment/django -n applications || {
-    echo "  ⚠ Warning: Django deployment timed out or failed"
-    kubectl get pods -n applications -l app=django
-    echo "  Check logs with: kubectl logs -n applications -l app=django"
-}
-echo "  ✓ Django application deployed"
-
-echo ""
-echo "Step 13: Deploying ArgoCD Applications..."
+echo "Step 12: Deploying ArgoCD Applications..."
 echo "  → Deploying ArgoCD applications from local manifests..."
 kubectl apply -f argocd-apps/
 
@@ -510,8 +500,9 @@ echo ""
 echo "  What happens automatically:"
 echo "     - Gitea Actions builds the Django image from source"
 echo "     - Image is pushed to Gitea registry (gitea:3000/remotelab/django-app:X.X.X)"
+echo "     - Helm chart is packaged and pushed to OCI registry"
 echo "     - Security scanning runs via Trivy"
-echo "     - ArgoCD Image Updater detects new tag and updates deployment"
+echo "     - ArgoCD detects new Helm chart version and updates deployment"
 echo ""
 echo "Key Features:"
 echo "  - mTLS encryption for all pod-to-pod communication via Linkerd service mesh"

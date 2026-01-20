@@ -330,6 +330,27 @@ spec:
 
           echo "Repository initialized successfully!"
 
+          # Install Helm and push initial chart to OCI registry
+          echo "Installing Helm..."
+          curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+          echo "Packaging initial Helm chart..."
+          cd "$REPO_DIR/chart"
+          helm package django-app
+
+          echo "Logging into Gitea OCI registry..."
+          echo "$PASSWORD" | helm registry login gitea:3000 \
+            --username "$USERNAME" \
+            --password-stdin \
+            --insecure
+
+          echo "Pushing initial Helm chart to OCI registry..."
+          helm push django-app-0.1.0.tgz \
+            oci://gitea:3000/remotelab \
+            --insecure-skip-tls-verify
+
+          echo "Initial Helm chart pushed to oci://gitea:3000/remotelab/django-app:0.1.0"
+
           # Enable Actions for the repository
           echo "Enabling Actions for repository..."
           curl -X PATCH "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME" \

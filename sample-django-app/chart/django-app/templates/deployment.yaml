@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: django
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "django-app.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "django-app.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "django-app.selectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+        prometheus.io/path: {{ .Values.metrics.path | quote }}
+    spec:
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      containers:
+      - name: django
+        image: {{ .Values.image.registry }}:3000/{{ .Values.image.repository }}:{{ .Values.image.tag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        env:
+        {{- range $key, $value := .Values.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        ports:
+        - containerPort: {{ .Values.service.port }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.path }}
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: {{ .Values.healthCheck.readinessInitialDelay }}
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.healthCheck.path }}
+            port: {{ .Values.service.port }}
+          initialDelaySeconds: {{ .Values.healthCheck.livenessInitialDelay }}
+          periodSeconds: 30
+        {{- if .Values.persistence.enabled }}
+        volumeMounts:
+        - name: django-storage
+          mountPath: /app/data
+        {{- end }}
+      {{- if .Values.persistence.enabled }}
+      volumes:
+      - name: django-storage
+        persistentVolumeClaim:
+          claimName: django-pvc
+      {{- end }}

@@ -3,21 +3,16 @@ kind: Application
 metadata:
   name: django-api
   namespace: argocd
-  annotations:
-    argocd-image-updater.argoproj.io/image-list: django=localhost:30300/remotelab/django-app
-    argocd-image-updater.argoproj.io/django.update-strategy: semver
-    argocd-image-updater.argoproj.io/django.allow-tags: regexp:^[0-9]+\.[0-9]+\.[0-9]+$
-    argocd-image-updater.argoproj.io/write-back-method: git
-    argocd-image-updater.argoproj.io/write-back-target: deployment
-    argocd-image-updater.argoproj.io/git-branch: main
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   source:
-    repoURL: http://gitea.applications.svc.cluster.local:3000/remotelab/manifests.git
-    targetRevision: HEAD
-    path: manifests/applications/django
+    repoURL: oci://gitea.applications.svc.cluster.local:3000/remotelab
+    chart: django-app
+    targetRevision: "*"
+    helm:
+      valueFiles: []
   destination:
     server: https://kubernetes.default.svc
     namespace: applications

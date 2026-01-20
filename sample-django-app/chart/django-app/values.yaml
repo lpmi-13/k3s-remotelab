@@ -1,0 +1,40 @@
+image:
+  registry: gitea
+  repository: remotelab/django-app
+  tag: latest
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: gitea-registry-secret
+
+service:
+  type: ClusterIP
+  port: 8000
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+env:
+  REDIS_URL: "redis://redis:6379/1"
+  DEBUG: "false"
+  SECRET_KEY: "django-insecure-remotelab-key-change-in-production"
+
+persistence:
+  enabled: true
+  size: 2Gi
+  storageClass: local-path
+
+healthCheck:
+  path: /api/health/
+  readinessInitialDelay: 30
+  livenessInitialDelay: 60
+
+metrics:
+  enabled: true
+  port: "8000"
+  path: "/metrics"
