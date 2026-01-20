@@ -153,6 +153,17 @@ if [ "$SKIP_CLEANUP" = false ]; then
         kubectl delete pvc redis-data -n applications --ignore-not-found=true --wait=true --timeout=30s 2>/dev/null || true
         sleep 3  # Give local-path-provisioner time to cleanup storage directories
 
+        # Delete ArgoCD applications BEFORE deleting Gitea repos
+        # This prevents stale commit SHA references when repos are recreated
+        echo "  → Deleting ArgoCD applications (prevents stale revision cache)..."
+        if kubectl get namespace argocd &>/dev/null; then
+            # Remove finalizers first, then delete
+            kubectl get applications.argoproj.io -n argocd -o name 2>/dev/null | \
+                xargs -I {} kubectl patch {} -n argocd -p '{"metadata":{"finalizers":null}}' --type=merge 2>/dev/null || true
+            kubectl delete applications.argoproj.io --all -n argocd --ignore-not-found=true --wait=false 2>/dev/null || true
+            echo "  ✓ ArgoCD applications deleted"
+        fi
+
         # Delete Gitea repositories via API to ensure fresh state
         echo "  → Deleting Gitea repositories..."
         if curl -sf -o /dev/null http://localhost:30300/api/v1/version 2>/dev/null; then
