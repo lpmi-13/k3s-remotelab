@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: oci://gitea.applications.svc.cluster.local:3000/remotelab
+    repoURL: http://gitea.applications.svc.cluster.local:3000/api/packages/remotelab/helm
     chart: django-app
     targetRevision: "*"
     helm:

@@ -27,7 +27,7 @@
 
   <!-- Title -->
   <text x="500" y="35" text-anchor="middle" class="title">CI/CD Pipeline Flow</text>
-  <text x="500" y="55" text-anchor="middle" class="subtitle">OCI Helm Chart Deployment (No Image Updater)</text>
+  <text x="500" y="55" text-anchor="middle" class="subtitle">Helm Chart Deployment via Gitea Package Registry</text>
 
   <!-- Developer -->
   <rect x="400" y="80" width="200" height="50" rx="8" fill="#e9ecef" stroke="#495057" stroke-width="2"/>
@@ -111,17 +111,17 @@
   <text x="375" y="614" text-anchor="middle" class="tiny">django-app:1.0.X</text>
 
   <rect x="520" y="582" width="210" height="38" rx="4" fill="#e7f5ff" stroke="#7950f2" stroke-width="2"/>
-  <text x="625" y="600" text-anchor="middle" class="small" fill="#7950f2">⎈ Helm Charts (OCI)</text>
-  <text x="625" y="614" text-anchor="middle" class="tiny" fill="#7950f2">django-app:0.1.X</text>
+  <text x="625" y="600" text-anchor="middle" class="small" fill="#7950f2">⎈ Helm Charts (Package API)</text>
+  <text x="625" y="614" text-anchor="middle" class="tiny" fill="#7950f2">django-app-0.1.X.tgz</text>
 
   <!-- Arrow from Registry to ArgoCD (direct - no Image Updater!) -->
   <line x1="500" y1="630" x2="500" y2="680" stroke="#7950f2" stroke-width="2.5" marker-end="url(#arrowhead-purple)"/>
   <text x="530" y="660" class="small" fill="#7950f2">watches chart</text>
 
-  <!-- ArgoCD GitOps (updated - watches OCI directly) -->
+  <!-- ArgoCD GitOps (updated - watches Helm repo directly) -->
   <rect x="280" y="690" width="440" height="100" rx="8" fill="#f3f0ff" stroke="#7950f2" stroke-width="2.5"/>
   <text x="500" y="720" text-anchor="middle" class="label" fill="#5f3dc4">⚙️ ArgoCD GitOps Engine</text>
-  <text x="500" y="742" text-anchor="middle" class="small">• Watches OCI chart: oci://gitea:3000/remotelab/django-app</text>
+  <text x="500" y="742" text-anchor="middle" class="small">• Watches Helm repo: gitea:3000/api/packages/remotelab/helm</text>
   <text x="500" y="759" text-anchor="middle" class="small">• Detects new chart version → triggers sync</text>
   <text x="500" y="780" text-anchor="middle" class="tiny" fill="#7950f2">Auto-sync enabled • No Image Updater needed • targetRevision: "*"</text>
 
