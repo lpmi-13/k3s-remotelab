@@ -33,8 +33,8 @@ ENV BUILD_COMMIT=${BUILD_COMMIT}
 ENV BUILD_DATE=${BUILD_DATE}
 
 # Inject build information into version.py
-RUN sed -i "s/BUILD_COMMIT = \"unknown\"/BUILD_COMMIT = \"${BUILD_COMMIT}\"/" version.py && \
-    sed -i "s/BUILD_DATE = \"unknown\"/BUILD_DATE = \"${BUILD_DATE}\"/" version.py
+RUN sed -i "s/BUILD_COMMIT = \"initial\"/BUILD_COMMIT = \"${BUILD_COMMIT}\"/" version.py && \
+    sed -i "s/BUILD_DATE = \"initial\"/BUILD_DATE = \"${BUILD_DATE}\"/" version.py
 
 # Create necessary directories
 RUN mkdir -p /app/data

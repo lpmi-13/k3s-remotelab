@@ -224,11 +224,12 @@ spec:
               steps:
                 - uses: actions/checkout@v4
 
-                - name: Get version
+                - name: Get version and metadata
                   id: version
                   run: |
                     VERSION=$(grep "BASE_VERSION = " version.py | cut -d'"' -f2)
                     echo "version=${VERSION}.${{ gitea.run_number }}" >> $GITHUB_OUTPUT
+                    echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
                 - name: Configure registry auth
                   run: |
@@ -240,7 +241,12 @@ spec:
                 - name: Build image
                   run: |
                     IMAGE="${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}"
-                    docker build -t ${IMAGE}:${{ steps.version.outputs.version }} -t ${IMAGE}:latest .
+                    docker build \
+                      --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+                      --build-arg BUILD_COMMIT=${{ gitea.sha }} \
+                      --build-arg BUILD_DATE=${{ steps.version.outputs.build_date }} \
+                      -t ${IMAGE}:${{ steps.version.outputs.version }} \
+                      -t ${IMAGE}:latest .
 
                 - name: Push to registry
                   run: |
