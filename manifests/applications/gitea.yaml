@@ -39,11 +39,11 @@ spec:
               name: postgresql-secret
               key: password
         - name: GITEA__server__DOMAIN
-          value: "gitea.applications.svc.cluster.local"
+          value: "localhost"
         - name: GITEA__server__SSH_DOMAIN
           value: "localhost"
         - name: GITEA__server__ROOT_URL
-          value: "http://gitea.applications.svc.cluster.local:3000/"
+          value: "https://localhost/gitea/"
         - name: GITEA__server__LOCAL_ROOT_URL
           value: "http://gitea:3000/"
         - name: GITEA__metrics__ENABLED
