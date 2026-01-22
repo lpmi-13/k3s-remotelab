@@ -55,17 +55,29 @@ sudo systemctl restart docker
 
 **Note:** For production, you should use proper TLS certificates.
 
-#### macOS (Rancher Desktop)
+#### macOS (Colima)
 
-Rancher Desktop manages Docker/containerd configuration through its UI:
+Colima uses containerd/k3s for the Kubernetes runtime. Configure registries via:
 
-1. Open Rancher Desktop Preferences
-2. Navigate to Container Engine settings
-3. Configure registry mirrors/insecure registries as needed
-4. Restart Rancher Desktop to apply changes
+```bash
+# SSH into Colima VM and configure registries
+colima ssh -- sudo mkdir -p /etc/rancher/k3s
+colima ssh -- sudo tee /etc/rancher/k3s/registries.yaml <<EOF
+mirrors:
+  localhost:
+    endpoint:
+      - "http://localhost"
+configs:
+  "localhost":
+    tls:
+      insecure_skip_verify: true
+EOF
 
-Note: Rancher Desktop uses containerd by default, which handles registry
-configuration differently than Docker daemon.
+# Restart k3s to apply changes
+colima ssh -- sudo systemctl restart k3s
+```
+
+Note: Colima uses containerd, which handles registry configuration differently than Docker daemon.
 
 ### Option B: Use with K3s (Recommended for this setup)
 

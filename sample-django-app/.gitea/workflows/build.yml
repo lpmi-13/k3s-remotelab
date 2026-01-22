@@ -162,12 +162,14 @@ jobs:
           # Update Chart.yaml version and appVersion
           sed -i "s/^version:.*/version: 0.1.${{ gitea.run_number }}/" Chart.yaml
           sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.semver }}\"/" Chart.yaml
-          # Update values.yaml image tag
+          # Update values.yaml image tag and registry
           sed -i "s/tag: .*/tag: ${{ steps.version.outputs.semver }}/" values.yaml
+          # Update registry to use NodePort (accessible from k3s node for image pulls)
+          sed -i "s|registry:.*|registry: localhost:30300  # Gitea registry via NodePort|" values.yaml
           echo "Updated Chart.yaml and values.yaml:"
           cat Chart.yaml
           echo "---"
-          grep "tag:" values.yaml
+          cat values.yaml
 
       - name: Package Helm chart
         run: |
@@ -176,12 +178,12 @@ jobs:
           echo "Packaged charts:"
           ls -la *.tgz
 
-      - name: Push Helm chart to OCI registry
+      - name: Push Helm chart to Gitea package registry
         run: |
           cd chart
           # Use curl to push directly to Gitea's package API (bypasses OCI auth issues)
           CHART_FILE="django-app-0.1.${{ gitea.run_number }}.tgz"
-          curl -X PUT \
+          curl -X POST \
             -u "remotelab:remotelab" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@${CHART_FILE}" \

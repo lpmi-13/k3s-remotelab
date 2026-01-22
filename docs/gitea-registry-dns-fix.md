@@ -52,14 +52,14 @@ The workflow pushes to `gitea:3000`, but the deployment uses a different image r
 
 ### Option 2: Configure containerd on K3s nodes
 
-For Rancher Desktop/K3s on Lima VM, you need to configure containerd to:
+For Colima/K3s on macOS, you need to configure containerd to:
 1. Allow insecure registries for `gitea:3000`
 2. Add a mirror/endpoint configuration
 
 This typically involves:
 ```bash
-# SSH into the Lima VM
-limactl shell rancher-desktop
+# SSH into the Colima VM
+colima ssh
 
 # Create/edit registries.yaml
 sudo mkdir -p /etc/rancher/k3s
@@ -78,7 +78,7 @@ EOF
 sudo systemctl restart k3s
 ```
 
-**Note**: The exact commands may vary depending on your Rancher Desktop setup.
+**Note**: The exact commands may vary depending on your Colima setup.
 
 ### Option 3: Use Full Service DNS Name
 

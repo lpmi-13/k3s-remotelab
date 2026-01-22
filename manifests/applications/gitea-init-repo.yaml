@@ -279,20 +279,24 @@ spec:
                     sed -i "s/^version:.*/version: 0.1.${{ gitea.run_number }}/" Chart.yaml
                     sed -i "s/^appVersion:.*/appVersion: \"${{ steps.version.outputs.version }}\"/" Chart.yaml
                     sed -i "s/tag: .*/tag: ${{ steps.version.outputs.version }}/" values.yaml
+                    # Update registry to use NodePort (accessible from k3s node for image pulls)
+                    sed -i "s|registry:.*|registry: localhost:30300  # Gitea registry via NodePort|" values.yaml
                     echo "Updated Chart.yaml:"
                     cat Chart.yaml
+                    echo "Updated values.yaml:"
+                    cat values.yaml
 
                 - name: Package Helm chart
                   run: |
                     cd chart
                     helm package django-app
 
-                - name: Push Helm chart to OCI registry
+                - name: Push Helm chart to Gitea package registry
                   run: |
                     cd chart
                     # Use curl to push directly to Gitea's package API (bypasses OCI auth issues)
                     CHART_FILE="django-app-0.1.${{ gitea.run_number }}.tgz"
-                    curl -X PUT \
+                    curl -X POST \
                       -u "remotelab:remotelab" \
                       -H "Content-Type: application/octet-stream" \
                       --data-binary "@${CHART_FILE}" \
@@ -379,7 +383,7 @@ spec:
           helm package django-app
 
           echo "Pushing initial Helm chart to Gitea package registry..."
-          curl -X PUT \
+          curl -X POST \
             -u "$USERNAME:$PASSWORD" \
             -H "Content-Type: application/octet-stream" \
             --data-binary "@django-app-0.1.0.tgz" \

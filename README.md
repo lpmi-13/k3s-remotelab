@@ -29,21 +29,58 @@ A GitOps-driven, single-node K3s remotelab setup that's designed to be multi-nod
 | Platform | Kubernetes Provider | Setup |
 |----------|-------------------|-------|
 | Linux (Ubuntu/Debian) | Native k3s | Automated via `install-k3s.sh` |
-| macOS | Rancher Desktop | Install Rancher Desktop first |
+| macOS | Colima with k3s | Install Colima via Homebrew |
 
 ### macOS Prerequisites
 
-1. Install [Rancher Desktop](https://rancherdesktop.io/)
-2. Launch Rancher Desktop and configure:
-   - Go to Preferences > Container Engine
-   - **IMPORTANT: Select `containerd` (NOT `dockerd`)**
-   - This is required for k3s compatibility
-3. Enable Kubernetes:
-   - Go to Preferences > Kubernetes
-   - Enable Kubernetes
-   - Allocate at least 4GB RAM
-4. Wait for green status in the top-right (cluster ready)
-5. Run `./scripts/install-k3s.sh`
+1. Install Colima and Docker CLI via Homebrew:
+   ```bash
+   brew install colima kubectl docker
+   ```
+
+2. Start Colima with Kubernetes (k3s) and containerd runtime:
+   ```bash
+   colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
+   ```
+   This creates a lightweight VM running k3s with:
+   - 6 CPUs
+   - 8GB RAM
+   - 100GB disk
+   - containerd runtime (required for Linkerd compatibility)
+
+   **Note:** Unlike native k3s on Linux, Colima's k3s does not include Traefik by default.
+   The `deploy-all.sh` script will automatically install Traefik if it's not present.
+
+3. (Optional) For local image building, install nerdctl:
+   ```bash
+   brew install nerdctl
+   ```
+   Note: The `docker` CLI won't work with containerd runtime. Use `nerdctl` instead, or build images within the cluster.
+
+4. Verify the cluster is ready:
+   ```bash
+   kubectl get nodes
+   # Should show: colima   Ready   control-plane,master   ...
+   ```
+
+5. Run `./scripts/install-k3s.sh` (optional - Colima already provides k3s)
+
+### Managing Colima
+
+```bash
+# Check status
+colima status
+
+# Stop the VM
+colima stop
+
+# Start the VM (after reboot)
+colima start
+
+# Delete and recreate (full reset)
+colima delete
+colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
+```
 
 ## Quick Start
 
@@ -57,11 +94,12 @@ A GitOps-driven, single-node K3s remotelab setup that's designed to be multi-nod
 
 #### macOS
 - macOS 10.15+ (Catalina or newer)
-- Rancher Desktop installed and running with:
-  - Container Engine set to `containerd` (NOT `dockerd`)
-  - Kubernetes enabled
-  - At least 4GB RAM allocated
-- kubectl CLI (included with Rancher Desktop)
+- Colima installed and running with Kubernetes and containerd:
+  ```bash
+  brew install colima kubectl
+  colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
+  ```
+- (Optional) For local image building: `brew install nerdctl`
 
 ### Installation
 
@@ -82,12 +120,13 @@ The deployment script is:
 **What it does:**
 1. Cleans up any existing resources (can be skipped with `--skip-cleanup`)
 2. Installs Linkerd service mesh with automatic mTLS for all services (certificates valid for 7 days)
-3. Deploys all Kubernetes resources (ArgoCD, monitoring, infrastructure)
-4. Waits for Gitea to be ready
-5. Automatically creates Gitea admin user (username: `remotelab`, password: `remotelab`)
-6. Initializes Django repository in Gitea with automated workflow
-7. Pulls Django image from ghcr.io/lpmi-13/k3s-remotelab-django and pushes to Gitea registry
-8. Deploys Django application with Linkerd sidecar injection
+3. Installs Traefik ingress controller if not already present (required for Colima, included by default in native k3s)
+4. Deploys all Kubernetes resources (ArgoCD, monitoring, infrastructure)
+5. Waits for Gitea to be ready
+6. Automatically creates Gitea admin user (username: `remotelab`, password: `remotelab`)
+7. Initializes Django repository in Gitea with automated workflow
+8. Pulls Django image from ghcr.io/lpmi-13/k3s-remotelab-django and pushes to Gitea registry
+9. Deploys Django application with Linkerd sidecar injection
 
 ## Service Access
 

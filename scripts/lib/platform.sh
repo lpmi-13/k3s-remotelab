@@ -40,8 +40,8 @@ get_linkerd_path() {
     echo "${HOME}/.linkerd2/bin"
 }
 
-is_rancher_desktop() {
-    [[ "$PLATFORM" == "macos" ]] && [[ -d "/Applications/Rancher Desktop.app" ]]
+is_colima() {
+    [[ "$PLATFORM" == "macos" ]] && command -v colima &>/dev/null && colima status &>/dev/null
 }
 
 detect_local_context() {
@@ -62,11 +62,8 @@ detect_local_context() {
     # 3. Check current context if it looks local
 
     local patterns=(
-        "^rancher-desktop$"
-        "^rancher-desktop-k3s$"
-        "rancher"
-        "^docker-desktop$"
         "^colima$"
+        "^docker-desktop$"
         "^k3d-"
         "^kind-"
         "^minikube$"
@@ -116,13 +113,13 @@ Available contexts:"
             kubectl config get-contexts 2>/dev/null || echo "  (none)"
             echo ""
             echo "Troubleshooting steps:"
-            echo "  1. Ensure Rancher Desktop is installed and running"
-            echo "  2. Open Rancher Desktop and go to Preferences"
-            echo "  3. Enable 'Kubernetes' and wait for it to start"
-            echo "  4. Verify with: kubectl config get-contexts"
-            echo "  5. Look for a context like 'rancher-desktop' or 'rancher-desktop-k3s'"
+            echo "  1. Ensure Colima is installed and running with Kubernetes:"
+            echo "     brew install colima kubectl docker"
+            echo "     colima start --kubernetes --cpu 6 --memory 8 --disk 100"
+            echo "  2. Verify with: kubectl config get-contexts"
+            echo "  3. Look for a context named 'colima'"
             echo ""
-            echo "If using a different local Kubernetes tool (Docker Desktop, Colima, etc.),"
+            echo "If using a different local Kubernetes tool (Docker Desktop, minikube, etc.),"
             echo "ensure it's running and has created a kubeconfig context."
             return 1
         fi

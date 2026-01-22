@@ -82,11 +82,12 @@ uninstall_k3s() {
 setup_macos() {
     log "Setting up for macOS with local Kubernetes..."
 
-    # Check if Rancher Desktop is installed (recommended)
-    if ! is_rancher_desktop; then
-        warning "Rancher Desktop not detected at /Applications/Rancher Desktop.app"
-        log "You can use other local Kubernetes solutions (Docker Desktop, Colima, etc.)"
-        log "Or install Rancher Desktop from: https://rancherdesktop.io/"
+    # Check if Colima is running (recommended)
+    if ! is_colima; then
+        warning "Colima not detected or not running"
+        log "Install and start Colima with:"
+        log "  brew install colima kubectl docker"
+        log "  colima start --kubernetes --cpu 6 --memory 8 --disk 100"
     fi
 
     # Try to switch to local context
@@ -95,13 +96,11 @@ setup_macos() {
 
 Please ensure you have a local Kubernetes cluster running:
 
-Option 1 - Rancher Desktop (Recommended):
-  1. Install from: https://rancherdesktop.io/
-  2. Open Rancher Desktop
-  3. Go to Preferences > Kubernetes
-  4. Enable Kubernetes
-  5. Wait for cluster to start (check status in top-right)
-  6. Re-run this script
+Option 1 - Colima (Recommended):
+  1. Install: brew install colima kubectl docker
+  2. Start with Kubernetes: colima start --kubernetes --cpu 6 --memory 8 --disk 100
+  3. Configure Docker: export DOCKER_HOST=\"unix://\$HOME/.colima/default/docker.sock\"
+  4. Re-run this script
 
 Option 2 - Docker Desktop:
   1. Open Docker Desktop
@@ -110,9 +109,9 @@ Option 2 - Docker Desktop:
   4. Wait for cluster to start
   5. Re-run this script
 
-Option 3 - Colima:
-  1. Install: brew install colima
-  2. Start with Kubernetes: colima start --kubernetes
+Option 3 - Minikube:
+  1. Install: brew install minikube
+  2. Start: minikube start --cpus 6 --memory 8192
   3. Re-run this script"
     fi
 
@@ -172,9 +171,9 @@ EOF
 configure_kubectl() {
     log "Configuring kubectl access..."
 
-    # Skip kubeconfig copy on macOS (Rancher Desktop handles it)
+    # Skip kubeconfig copy on macOS (Colima handles it)
     if [[ "$PLATFORM" == "macos" ]]; then
-        log "Skipping kubeconfig setup (Rancher Desktop manages this)"
+        log "Skipping kubeconfig setup (Colima manages this)"
         if kubectl get nodes &> /dev/null; then
             success "kubectl configured successfully"
         else

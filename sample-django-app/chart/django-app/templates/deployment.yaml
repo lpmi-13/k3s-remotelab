@@ -23,7 +23,7 @@ spec:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       containers:
       - name: django
-        image: {{ .Values.image.registry }}:3000/{{ .Values.image.repository }}:{{ .Values.image.tag }}
+        image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         env:
         {{- range $key, $value := .Values.env }}

@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      # hostAliases maps 'localhost' to Traefik ingress ClusterIP
+      # This is required because Gitea's Helm Package API returns download URLs
+      # using ROOT_URL (https://localhost/gitea/...), which doesn't work from
+      # inside pods. By mapping localhost to Traefik's ClusterIP, the repo-server
+      # can download charts when Gitea redirects to localhost URLs.
+      # NOTE: The actual IP is set dynamically by deploy-all.sh using:
+      #   kubectl get svc traefik -n kube-system -o jsonpath='{.spec.clusterIP}'
+      hostAliases:
+      - ip: "TRAEFIK_CLUSTER_IP"
+        hostnames:
+        - "localhost"

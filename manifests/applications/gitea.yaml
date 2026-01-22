@@ -39,11 +39,11 @@ spec:
               name: postgresql-secret
               key: password
         - name: GITEA__server__DOMAIN
-          value: "localhost"
+          value: "gitea.applications.svc.cluster.local"
         - name: GITEA__server__SSH_DOMAIN
           value: "localhost"
         - name: GITEA__server__ROOT_URL
-          value: "https://localhost/gitea/"
+          value: "http://gitea.applications.svc.cluster.local:3000/"
         - name: GITEA__server__LOCAL_ROOT_URL
           value: "http://gitea:3000/"
         - name: GITEA__metrics__ENABLED
@@ -97,6 +97,51 @@ spec:
             port: 3000
           initialDelaySeconds: 60
           periodSeconds: 30
+      # TLS proxy sidecar for container registry access
+      # Containerd requires HTTPS for image pulls - this terminates TLS and proxies to Gitea HTTP
+      - name: registry-tls-proxy
+        image: nginx:alpine
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          apk add --no-cache openssl > /dev/null 2>&1
+          mkdir -p /certs
+          # Generate self-signed cert for the registry
+          openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+            -keyout /certs/tls.key -out /certs/tls.crt \
+            -subj "/CN=10.43.200.100" \
+            -addext "subjectAltName=IP:10.43.200.100" 2>/dev/null
+          cat > /etc/nginx/nginx.conf << 'NGINX'
+          events { worker_connections 1024; }
+          http {
+            client_max_body_size 0;
+            chunked_transfer_encoding on;
+            server {
+              listen 3443 ssl;
+              ssl_certificate /certs/tls.crt;
+              ssl_certificate_key /certs/tls.key;
+              location / {
+                proxy_pass http://localhost:3000;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto https;
+                proxy_read_timeout 900;
+              }
+            }
+          }
+          NGINX
+          nginx -g 'daemon off;'
+        ports:
+        - containerPort: 3443
+          name: https
+        resources:
+          limits:
+            cpu: 100m
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
       volumes:
       - name: gitea-storage
         persistentVolumeClaim:
@@ -124,6 +169,7 @@ metadata:
     app: gitea
 spec:
   type: NodePort
+  clusterIP: 10.43.200.100  # Fixed IP for container registry access from kubelet
   selector:
     app: gitea
   ports:
@@ -131,6 +177,9 @@ spec:
     port: 3000
     targetPort: 3000
     nodePort: 30300
+  - name: https
+    port: 3443
+    targetPort: 3443
   - name: ssh
     port: 22
     targetPort: 22

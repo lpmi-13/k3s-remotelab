@@ -1,5 +1,5 @@
 image:
-  registry: gitea
+  registry: localhost:30300  # Gitea registry via NodePort (accessible from k3s node)
   repository: remotelab/django-app
   tag: latest
   pullPolicy: Always

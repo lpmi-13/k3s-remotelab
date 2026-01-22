@@ -2,7 +2,9 @@
 
 ## Overview
 
-Enable the k3s-remotelab project to work on both **MacOS** (via Rancher Desktop) and **Linux** (native k3s), with auto-detection and support for existing setups.
+Enable the k3s-remotelab project to work on both **MacOS** (via Colima with k3s) and **Linux** (native k3s), with auto-detection and support for existing setups.
+
+> **Note**: This plan was originally written for Rancher Desktop but has been updated to use Colima, which provides a more reliable experience on macOS.
 
 ## Files to Modify
 
@@ -65,10 +67,8 @@ get_linkerd_path() {
     echo "${HOME}/.linkerd2/bin"
 }
 
-is_rancher_desktop() {
-    [[ "$PLATFORM" == "macos" ]] && \
-    (kubectl config current-context 2>/dev/null | grep -q "rancher-desktop" || \
-     [[ -d "/Applications/Rancher Desktop.app" ]])
+is_colima() {
+    [[ "$PLATFORM" == "macos" ]] && command -v colima &>/dev/null && colima status &>/dev/null
 }
 
 check_kubernetes_available() {
@@ -105,27 +105,26 @@ check_kubernetes_available() {
 4. **Add macOS setup function** (after `uninstall_k3s`):
    ```bash
    setup_macos() {
-       log "Setting up for macOS with Rancher Desktop..."
+       log "Setting up for macOS with Colima..."
 
-       if ! is_rancher_desktop; then
-           error "Rancher Desktop not found. Please install from https://rancherdesktop.io/
-   After installation:
-   1. Open Rancher Desktop
-   2. Enable Kubernetes in Preferences
-   3. Wait for cluster to be ready
-   4. Re-run this script"
+       if ! is_colima; then
+           error "Colima not found or not running. Please install and start:
+   brew install colima kubectl docker
+   colima start --kubernetes --cpu 6 --memory 8 --disk 100
+   export DOCKER_HOST=\"unix://\$HOME/.colima/default/docker.sock\"
+   Then re-run this script"
        fi
 
        if ! check_kubernetes_available; then
-           error "Kubernetes cluster not accessible. Ensure Rancher Desktop is running with Kubernetes enabled."
+           error "Kubernetes cluster not accessible. Ensure Colima is running with Kubernetes enabled."
        fi
 
-       success "Rancher Desktop Kubernetes cluster is ready"
-       log "Skipping k3s installation (provided by Rancher Desktop)"
+       success "Colima Kubernetes cluster is ready"
+       log "Skipping k3s installation (provided by Colima)"
    }
    ```
 
-5. **Modify `configure_kubectl`**: Skip kubeconfig copy on macOS (Rancher Desktop handles it)
+5. **Modify `configure_kubectl`**: Skip kubeconfig copy on macOS (Colima handles it)
 
 6. **Modify `install_helm`**: Use Homebrew on macOS if available
 
@@ -185,15 +184,26 @@ Add new section after line 25:
 | Platform | Kubernetes Provider | Setup |
 |----------|-------------------|-------|
 | Linux (Ubuntu/Debian) | Native k3s | Automated via `install-k3s.sh` |
-| macOS | Rancher Desktop | Install Rancher Desktop first |
+| macOS | Colima with k3s | Install Colima via Homebrew |
 
 ### macOS Prerequisites
 
-1. Install [Rancher Desktop](https://rancherdesktop.io/)
-2. Launch and enable Kubernetes in Preferences
-3. Allocate at least 4GB RAM in Preferences
-4. Wait for green status (cluster ready)
-5. Run `./scripts/install-k3s.sh`
+1. Install Colima and dependencies:
+   ```bash
+   brew install colima kubectl docker
+   ```
+2. Start Colima with Kubernetes:
+   ```bash
+   colima start --kubernetes --cpu 6 --memory 8 --disk 100
+   ```
+3. Configure Docker environment:
+   ```bash
+   export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+   ```
+4. Verify cluster is ready:
+   ```bash
+   kubectl get nodes
+   ```
 ```
 
 ---
@@ -203,17 +213,25 @@ Add new section after line 25:
 Add macOS section after existing Docker config (around line 55):
 
 ```markdown
-#### macOS (Rancher Desktop)
+#### macOS (Colima)
 
-Rancher Desktop manages Docker/containerd configuration through its UI:
+Colima uses containerd/k3s for the Kubernetes runtime. Configure registries via:
 
-1. Open Rancher Desktop Preferences
-2. Navigate to Container Engine settings
-3. Configure registry mirrors/insecure registries as needed
-4. Restart Rancher Desktop to apply changes
+```bash
+# SSH into Colima VM and configure registries
+colima ssh -- sudo mkdir -p /etc/rancher/k3s
+colima ssh -- sudo tee /etc/rancher/k3s/registries.yaml <<EOF
+mirrors:
+  localhost:
+    endpoint:
+      - "http://localhost"
+EOF
 
-Note: Rancher Desktop uses containerd by default, which handles registry
-configuration differently than Docker daemon.
+# Restart k3s to apply changes
+colima ssh -- sudo systemctl restart k3s
+```
+
+Note: Colima uses containerd, which handles registry configuration differently than Docker daemon.
 ```
 
 ---
@@ -227,8 +245,8 @@ configuration differently than Docker daemon.
 - [ ] All services accessible
 
 ### macOS Testing
-- [ ] Without Rancher Desktop - helpful error message
-- [ ] With Rancher Desktop running - skips k3s install
+- [ ] Without Colima - helpful error message
+- [ ] With Colima running - skips k3s install
 - [ ] `deploy-all.sh` completes successfully
 - [ ] All services accessible via localhost
 
@@ -237,6 +255,6 @@ configuration differently than Docker daemon.
 ## Notes
 
 - Kubernetes manifests (`/manifests/**`) require **no changes** - they are platform-agnostic
-- The `local-path` storage class works on both platforms (k3s built-in on Linux, Rancher Desktop equivalent on macOS)
+- The `local-path` storage class works on both platforms (k3s built-in on Linux, Colima k3s on macOS)
 - Linkerd service mesh works identically on both platforms
 - All services remain accessible at `https://localhost/<path>`
