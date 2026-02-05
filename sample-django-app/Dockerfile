@@ -39,9 +39,9 @@ RUN sed -i "s/BUILD_COMMIT = \"initial\"/BUILD_COMMIT = \"${BUILD_COMMIT}\"/" ve
 # Create necessary directories
 RUN mkdir -p /app/data
 
-# Run database migrations and collect static files
-RUN python manage.py migrate
-RUN python manage.py collectstatic --noinput
+# Collect static files (migrations run at deployment time, not build time)
+# Use SQLite during build to avoid needing PostgreSQL connection
+RUN DATABASE_ENGINE=sqlite python manage.py collectstatic --noinput
 
 # Create a non-root user
 RUN adduser --disabled-password --gecos '' django

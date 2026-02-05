@@ -21,6 +21,61 @@ spec:
     spec:
       imagePullSecrets:
         {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      initContainers:
+      - name: wait-for-db
+        image: postgres:15
+        env:
+        - name: PGHOST
+          value: {{ .Values.env.DATABASE_HOST | quote }}
+        - name: PGPORT
+          value: {{ .Values.env.DATABASE_PORT | quote }}
+        - name: PGDATABASE
+          value: {{ .Values.env.DATABASE_NAME | quote }}
+        - name: PGUSER
+          value: {{ .Values.env.DATABASE_USER | quote }}
+        - name: PGPASSWORD
+          value: {{ .Values.env.DATABASE_PASSWORD | quote }}
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "=== Waiting for Database ==="
+          echo "Host: $PGHOST:$PGPORT"
+          echo "Database: $PGDATABASE"
+          echo "User: $PGUSER"
+          echo ""
+
+          max_attempts=30
+          attempt=1
+
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt/$max_attempts: Checking database connectivity..."
+
+            if pg_isready -h "$PGHOST" -p "$PGPORT" -d "$PGDATABASE" -U "$PGUSER" -t 5 > /dev/null 2>&1; then
+              echo "✓ Database is ready"
+
+              # Verify we can actually connect
+              if psql -c "SELECT 1" > /dev/null 2>&1; then
+                echo "✓ Successfully connected to database"
+                echo "Django can now start!"
+                exit 0
+              else
+                echo "⚠ Database is ready but connection failed, retrying..."
+              fi
+            else
+              echo "⚠ Database not ready yet..."
+            fi
+
+            if [ $attempt -lt $max_attempts ]; then
+              sleep 2
+            fi
+            attempt=$((attempt + 1))
+          done
+
+          echo "✗ ERROR: Database did not become ready after $max_attempts attempts"
+          echo "Database: $PGDATABASE at $PGHOST:$PGPORT"
+          exit 1
       containers:
       - name: django
         image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}

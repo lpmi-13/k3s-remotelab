@@ -138,6 +138,22 @@ USE_TZ = True
 STATIC_URL = '/django/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+# Django 5.1 Storage configuration
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
+# Django 5.1 Form rendering
+FORM_RENDERER = 'django.forms.renderers.TemplatesSetting'
+
+# Django 5.1 Security headers
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin-allow-popups"
+
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

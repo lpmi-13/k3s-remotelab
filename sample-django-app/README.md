@@ -4,7 +4,11 @@ A sample Django REST API application designed for K3s remotelab CI/CD pipeline d
 
 ## Features
 
+- **Django 5.1**: Latest Django framework with modern features
 - **Django REST Framework**: Modern API development
+- **PostgreSQL**: Production-ready database with psycopg 3
+- **GraphQL**: API queries via Strawberry GraphQL
+- **Celery**: Asynchronous task processing with Redis broker
 - **Redis Integration**: Caching and session storage
 - **Prometheus Metrics**: Application monitoring
 - **Health Checks**: Kubernetes-ready endpoints
@@ -30,40 +34,66 @@ A sample Django REST API application designed for K3s remotelab CI/CD pipeline d
    cd django-app
    ```
 
-2. **Set up virtual environment**:
+2. **Set up virtual environment with uv** (recommended):
+   ```bash
+   # Install uv if not already installed: https://github.com/astral-sh/uv
+   # Create virtual environment and install dependencies
+   uv venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   uv pip install -r requirements.txt
+   ```
+
+   Or with traditional venv:
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. **Install dependencies**:
-   ```bash
    pip install -r requirements.txt
    ```
 
-4. **Set up environment variables**:
+3. **Set up environment variables**:
    ```bash
    export DEBUG=true
+   export DATABASE_ENGINE=sqlite
    export SECRET_KEY=your-secret-key-here
    export REDIS_URL=redis://localhost:6379/1
    ```
 
-5. **Run migrations**:
+4. **Run migrations**:
    ```bash
    python manage.py migrate
    ```
 
-6. **Start development server**:
+5. **Start development server**:
    ```bash
    python manage.py runserver
    ```
 
-7. **Access the application**:
+6. **Access the application**:
    - API: http://localhost:8000/api/
    - Health: http://localhost:8000/api/health/
    - Admin: http://localhost:8000/admin/
 
-### Docker Development
+### Container Development
+
+#### Using nerdctl with colima (recommended for macOS):
+
+1. **Ensure colima is running**:
+   ```bash
+   colima status
+   # If not running: colima start
+   ```
+
+2. **Build the container**:
+   ```bash
+   colima ssh -- sudo nerdctl --namespace k8s.io build -t django-app:test .
+   ```
+
+3. **List images**:
+   ```bash
+   colima ssh -- sudo nerdctl --namespace k8s.io images
+   ```
+
+#### Using Docker:
 
 1. **Build the container**:
    ```bash
