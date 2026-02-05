@@ -1,6 +1,6 @@
 apiVersion: v2
 name: django-app
-description: Django Remotelab API Application
+description: Django Remotelab Warehouse Management API
 type: application
-version: 0.1.2
-appVersion: "1.0.0"
+version: 0.2.0
+appVersion: "2.0.0"

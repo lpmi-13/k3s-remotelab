@@ -1,6 +1,7 @@
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.decorators import api_view, permission_classes, action
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework import viewsets, status
 from django.core.cache import cache
 from django.shortcuts import render
 import os
@@ -8,6 +9,17 @@ import time
 import platform
 import version
 
+from .models import Product, Inventory
+from .serializers import (
+    ProductSerializer,
+    InventorySerializer,
+    InventoryAdjustSerializer,
+)
+
+
+# ============================================================
+# Health and Info endpoints
+# ============================================================
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
@@ -53,20 +65,26 @@ def api_info(request):
         'version': version.get_version(),
         'commit': version.get_commit_sha(),
         'build_date': version.get_build_date(),
-        'description': 'Simple Django REST API for K3s remotelab demo',
+        'description': 'Simple inventory management API for K3s demo',
         'endpoints': {
             'health': '/api/health/',
             'system': '/api/system/',
             'info': '/api/info/',
             'metrics': '/metrics',
-            'admin': '/admin/'
+            'admin': '/admin/',
+            'graphql': '/graphql/',
+            'products': '/api/products/',
+            'inventory': '/api/inventory/',
         },
         'features': [
             'Health checks',
             'System information',
             'Redis caching',
             'Prometheus metrics',
-            'Path-based routing support'
+            'Product catalog',
+            'Inventory tracking',
+            'GraphQL API',
+            'Celery async tasks',
         ]
     })
 
@@ -90,6 +108,18 @@ def landing_page(request):
                 'description': 'API information and version details'
             },
             {
+                'url': '/django/graphql/',
+                'description': 'GraphQL API endpoint with GraphiQL'
+            },
+            {
+                'url': '/django/api/products/',
+                'description': 'Product catalog REST API'
+            },
+            {
+                'url': '/django/api/inventory/',
+                'description': 'Inventory tracking REST API'
+            },
+            {
                 'url': '/django/metrics',
                 'description': 'Prometheus metrics endpoint'
             },
@@ -100,3 +130,84 @@ def landing_page(request):
         ]
     }
     return render(request, 'index.html', context)
+
+
+# ============================================================
+# Domain ViewSets
+# ============================================================
+
+class ProductViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing products.
+    """
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        is_active = self.request.query_params.get('is_active')
+        sku = self.request.query_params.get('sku')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        if sku:
+            queryset = queryset.filter(sku__icontains=sku)
+        return queryset
+
+
+class InventoryViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing inventory.
+    """
+    queryset = Inventory.objects.select_related('product').all()
+    serializer_class = InventorySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        product_id = self.request.query_params.get('product_id')
+        low_stock = self.request.query_params.get('low_stock')
+
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        if low_stock and low_stock.lower() == 'true':
+            from django.db.models import F
+            queryset = queryset.filter(quantity__lte=F('reorder_point'))
+        return queryset
+
+    @action(detail=True, methods=['post'])
+    def adjust_stock(self, request, pk=None):
+        """Adjust inventory stock by a given amount."""
+        inventory = self.get_object()
+        serializer = InventoryAdjustSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        adjustment = serializer.validated_data['adjustment']
+        new_quantity = max(0, inventory.quantity + adjustment)
+        inventory.quantity = new_quantity
+        inventory.save()
+
+        return Response(InventorySerializer(inventory).data)
+
+
+# ============================================================
+# Task status endpoint
+# ============================================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def task_status(request, task_id):
+    """Get the status of an async task."""
+    from celery.result import AsyncResult
+
+    result = AsyncResult(task_id)
+
+    response_data = {
+        'task_id': task_id,
+        'status': result.status,
+    }
+
+    if result.ready():
+        response_data['result'] = result.result
+
+    return Response(response_data)

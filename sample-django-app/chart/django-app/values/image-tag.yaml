@@ -1,0 +1,6 @@
+# Image tag configuration
+# This file is typically updated by CI/CD pipelines or ArgoCD Image Updater
+# Do not commit environment-specific tags; use 'latest' or semver
+
+image:
+  tag: latest

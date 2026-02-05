@@ -1,0 +1,63 @@
+# Pre-commit hooks for k3s-remotelab
+# Install: pip install pre-commit && pre-commit install
+
+repos:
+  # Standard pre-commit hooks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      # Prevent committing private keys
+      - id: detect-private-key
+        name: Detect private keys
+        description: Prevents committing private keys to the repository
+
+      # Prevent committing large files
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+
+      # Fix trailing whitespace
+      - id: trailing-whitespace
+        exclude: '\.enc$'
+
+      # Fix end of file
+      - id: end-of-file-fixer
+        exclude: '\.enc$'
+
+      # Check YAML syntax
+      - id: check-yaml
+        args: ['--allow-multiple-documents']
+        exclude: '\.enc$'
+
+      # Check JSON syntax
+      - id: check-json
+
+      # Check for merge conflicts
+      - id: check-merge-conflict
+
+  # Custom local hooks
+  - repo: local
+    hooks:
+      # Ensure .enc files are actually encrypted (contain sops metadata)
+      - id: detect-unencrypted-secrets
+        name: Detect unencrypted secrets
+        entry: bash -c 'for f in "$@"; do if [[ "$f" == *-secrets.yaml.enc ]] && ! grep -q "^sops:" "$f" 2>/dev/null; then echo "ERROR: $f appears to be unencrypted"; exit 1; fi; done' --
+        language: system
+        files: '-secrets\.yaml\.enc$'
+        pass_filenames: true
+
+      # Check for hardcoded secrets in YAML files
+      - id: no-hardcoded-secrets
+        name: Check for hardcoded secrets
+        entry: bash -c 'for f in "$@"; do if grep -iE "(password|secret|api_key|apikey|token):\s*['\''\"]*[a-zA-Z0-9]{8,}" "$f" 2>/dev/null | grep -v "{{" | grep -v "#" | grep -v "\.enc"; then echo "ERROR: Possible hardcoded secret in $f"; exit 1; fi; done' --
+        language: system
+        files: '\.(yaml|yml)$'
+        exclude: '\.enc$|values\.yaml$'
+        pass_filenames: true
+
+      # Prevent committing unencrypted secrets files
+      - id: no-unencrypted-secrets-files
+        name: Block unencrypted secrets files
+        entry: bash -c 'for f in "$@"; do if [[ "$f" == *-secrets.yaml ]] && [[ "$f" != *-secrets.yaml.enc ]]; then echo "ERROR: Unencrypted secrets file detected: $f (should be .yaml.enc)"; exit 1; fi; done' --
+        language: system
+        files: '-secrets\.yaml$'
+        pass_filenames: true

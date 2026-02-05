@@ -1,6 +1,24 @@
+# Django core
 Django==4.2.7
 djangorestframework==3.14.0
-redis==5.0.1
-django-prometheus==2.3.1
 gunicorn==21.2.0
+
+# Database
 psycopg2-binary==2.9.9
+
+# Cache and message broker
+redis==5.0.1
+
+# Async task processing
+celery==5.3.4
+django-celery-beat==2.5.0
+
+# GraphQL
+strawberry-graphql==0.217.1
+strawberry-graphql-django==0.30.1
+
+# Monitoring
+django-prometheus==2.3.1
+
+# Utilities
+python-dateutil==2.8.2

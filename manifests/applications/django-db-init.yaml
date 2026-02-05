@@ -1,0 +1,77 @@
+# Job to initialize the remotelab database for Django
+# This creates the database and user if they don't exist
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: django-db-init
+  namespace: applications
+  annotations:
+    # ArgoCD hook to run before syncing the Django app
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+      - name: db-init
+        image: postgres:15
+        env:
+        - name: PGHOST
+          value: "postgresql"
+        - name: PGPORT
+          value: "5432"
+        - name: PGUSER
+          value: "gitea"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgresql-secret
+              key: password
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Checking if remotelab database exists..."
+
+          # Check if database exists
+          DB_EXISTS=$(psql -tAc "SELECT 1 FROM pg_database WHERE datname='remotelab'" postgres)
+
+          if [ "$DB_EXISTS" != "1" ]; then
+            echo "Creating remotelab database and user..."
+
+            # Create user if not exists (idempotent)
+            psql -c "DO \$\$
+            BEGIN
+              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'remotelab') THEN
+                CREATE USER remotelab WITH PASSWORD 'remotelab';
+              END IF;
+            END
+            \$\$;" postgres
+
+            # Create database
+            psql -c "CREATE DATABASE remotelab OWNER remotelab;" postgres
+
+            # Grant privileges
+            psql -c "GRANT ALL PRIVILEGES ON DATABASE remotelab TO remotelab;" postgres
+
+            echo "Database and user created successfully."
+          else
+            echo "Database remotelab already exists."
+          fi
+
+          echo "Database initialization complete."
+---
+# Secret for Django database credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: django-db-secret
+  namespace: applications
+type: Opaque
+stringData:
+  DB_USER: "remotelab"
+  DB_PASSWORD: "remotelab"
+  DB_NAME: "remotelab"

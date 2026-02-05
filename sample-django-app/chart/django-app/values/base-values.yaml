@@ -1,7 +1,9 @@
+# Base values for django-app
+# Common non-sensitive configuration shared across all environments
+
 image:
-  registry: localhost:30300  # Gitea registry via NodePort (accessible from k3s node)
+  registry: localhost:30300
   repository: remotelab/django-app
-  tag: latest
   pullPolicy: Always
 
 imagePullSecrets:
@@ -18,21 +20,6 @@ resources:
   requests:
     cpu: 250m
     memory: 256Mi
-
-env:
-  REDIS_URL: "redis://redis:6379/1"
-  DEBUG: "false"
-  SECRET_KEY: "django-insecure-remotelab-key-change-in-production"
-  # Database configuration
-  DATABASE_ENGINE: "postgresql"
-  DB_HOST: "postgresql"
-  DB_PORT: "5432"
-  DB_NAME: "remotelab"
-  DB_USER: "remotelab"
-  DB_PASSWORD: "remotelab"
-  # Celery configuration
-  CELERY_BROKER_URL: "redis://redis:6379/0"
-  CELERY_RESULT_BACKEND: "redis://redis:6379/0"
 
 persistence:
   enabled: true
@@ -61,7 +48,7 @@ celery:
       cpu: 100m
       memory: 256Mi
 
-# Celery beat scheduler (single replica only)
+# Celery beat scheduler (only one replica)
 celeryBeat:
   enabled: true
   resources:
@@ -71,3 +58,14 @@ celeryBeat:
     requests:
       cpu: 50m
       memory: 128Mi
+
+# Database configuration (credentials in secrets)
+database:
+  host: postgresql
+  port: "5432"
+  name: remotelab
+
+# Redis configuration
+redis:
+  url: "redis://redis:6379/1"
+  celeryBroker: "redis://redis:6379/0"

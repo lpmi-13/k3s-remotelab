@@ -1,0 +1,94 @@
+# ArgoCD SOPS Configuration
+# This configures ArgoCD to decrypt SOPS-encrypted secrets using helm-secrets plugin
+
+---
+# ConfigMap to configure helm-secrets plugin
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  # Enable helm-secrets plugin for decrypting SOPS files
+  helm.valuesFileSchemes: >-
+    secrets+gpg-import, secrets+gpg-import-kubernetes,
+    secrets+age-import, secrets+age-import-kubernetes,
+    secrets, secrets+literal,
+    https, http
+
+---
+# Secret containing the age private key for SOPS decryption
+# This should be created separately with the actual key:
+# kubectl create secret generic sops-age-key \
+#   --namespace argocd \
+#   --from-file=key.txt=secrets/keys/local.key
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sops-age-key
+  namespace: argocd
+type: Opaque
+stringData:
+  # Placeholder - replace with actual key or create via kubectl
+  key.txt: |
+    # AGE-SECRET-KEY-PLACEHOLDER
+    # This is a placeholder. Create the actual secret with:
+    # kubectl create secret generic sops-age-key \
+    #   --namespace argocd \
+    #   --from-file=key.txt=secrets/keys/local.key
+
+---
+# Patch for repo-server to mount SOPS age key and install helm-secrets plugin
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      # Init container to install helm-secrets plugin
+      initContainers:
+      - name: install-helm-secrets
+        image: alpine:3.19
+        command:
+        - sh
+        - -c
+        - |
+          # Install helm-secrets plugin
+          wget -qO- https://github.com/jkroepke/helm-secrets/releases/download/v4.5.1/helm-secrets.tar.gz | tar xz -C /custom-tools
+          # Install sops binary
+          wget -qO /custom-tools/sops https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+          chmod +x /custom-tools/sops
+          # Install age binary
+          wget -qO- https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz -C /tmp
+          mv /tmp/age/age /custom-tools/
+          mv /tmp/age/age-keygen /custom-tools/
+          chmod +x /custom-tools/age /custom-tools/age-keygen
+        volumeMounts:
+        - name: custom-tools
+          mountPath: /custom-tools
+
+      containers:
+      - name: argocd-repo-server
+        env:
+        # SOPS age key location
+        - name: SOPS_AGE_KEY_FILE
+          value: /sops-age-key/key.txt
+        # Add custom tools to PATH
+        - name: HELM_PLUGINS
+          value: /custom-tools
+        volumeMounts:
+        - name: sops-age-key
+          mountPath: /sops-age-key
+          readOnly: true
+        - name: custom-tools
+          mountPath: /custom-tools
+          readOnly: true
+
+      volumes:
+      - name: sops-age-key
+        secret:
+          secretName: sops-age-key
+      - name: custom-tools
+        emptyDir: {}

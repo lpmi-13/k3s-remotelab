@@ -44,6 +44,24 @@ switch_to_local_context || {
 }
 echo ""
 
+# Ensure Colima is running on macOS
+if [[ "$PLATFORM" == "macos" ]]; then
+    if command -v colima &>/dev/null; then
+        if ! colima status &>/dev/null; then
+            echo "  → Colima is not running. Starting Colima with Kubernetes..."
+            colima start --kubernetes --cpu 6 --memory 8 --disk 100
+            echo "  → Waiting for Colima to initialize..."
+            sleep 15
+            echo "  ✓ Colima started"
+        else
+            echo "  ✓ Colima is already running"
+        fi
+    else
+        echo "  ⚠ Warning: Colima not installed. Install with: brew install colima"
+        echo "  → Continuing with current kubectl context..."
+    fi
+fi
+
 # Function to forcefully clean up a namespace by removing finalizers
 # This function ensures namespaces can always be deleted, even when stuck in Terminating state.
 # It handles:
@@ -331,7 +349,7 @@ echo "  ✓ Namespaces created (Linkerd injection enabled)"
 
 echo ""
 echo "Step 3: Installing ArgoCD..."
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+kubectl apply --server-side --force-conflicts -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 echo "  → Waiting for ArgoCD to be ready..."
 kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
 echo "  ✓ ArgoCD ready"

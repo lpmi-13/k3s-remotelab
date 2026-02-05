@@ -1,0 +1,3 @@
+- investigate HA databases and what that might look like
+- add some sort of notification (maybe via config) to places like slack/etc for argo deployments
+- similar to above, also add some notifications on errors (argo failures, pod failures, etc)...maybe via prometheus...maybe argo can do this directly

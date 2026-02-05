@@ -1,11 +1,18 @@
 # Kubernetes secrets and sensitive files
-*.key
 *.pem
 *.crt
 *.p12
 *.pfx
-secrets/
 private/
+
+# Age encryption keys (keep .sops.yaml, ignore private keys)
+secrets/keys/*.key
+!secrets/.sops.yaml
+!secrets/keys/README.md
+
+# Unencrypted secrets files (only .enc versions should be committed)
+*-secrets.yaml
+!*-secrets.yaml.enc
 
 # Environment and configuration files
 .env
