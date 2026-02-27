@@ -70,7 +70,13 @@ WSGI_APPLICATION = 'remotelab.wsgi.application'
 
 # Database
 # Use PostgreSQL in production, SQLite for local development/testing
-DATABASE_ENGINE = os.environ.get('DATABASE_ENGINE', 'postgresql')
+# Handle DATABASE_ENGINE similar to FORCE_SCRIPT_NAME
+# When explicitly set to empty string, use sqlite
+# When not set at all, default to postgresql
+if 'DATABASE_ENGINE' in os.environ:
+    DATABASE_ENGINE = os.environ['DATABASE_ENGINE'] or 'sqlite'
+else:
+    DATABASE_ENGINE = 'postgresql'
 
 if DATABASE_ENGINE == 'sqlite':
     DATABASES = {

@@ -32,10 +32,28 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Debug environment
+        run: |
+          echo "=== Database Configuration ==="
+          python -c "import os; print(f'DATABASE_ENGINE={os.environ.get(\"DATABASE_ENGINE\", \"NOT SET\")}')"
+          python -c "import os; print(f'DB_HOST={os.environ.get(\"DB_HOST\", \"NOT SET\")}')"
+
       - name: Run tests
         env:
+          # Disable subpath routing for tests
           FORCE_SCRIPT_NAME: ''
+          # Force SQLite database for tests
           DATABASE_ENGINE: 'sqlite'
+          # Explicitly unset PostgreSQL environment variables
+          DB_HOST: ''
+          DB_USER: ''
+          DB_PASSWORD: ''
+          DB_NAME: ''
+          DB_PORT: ''
+          # Unset Redis/Celery for test isolation
+          REDIS_URL: ''
+          CELERY_BROKER_URL: ''
+          CELERY_RESULT_BACKEND: ''
         run: |
           python manage.py test
 

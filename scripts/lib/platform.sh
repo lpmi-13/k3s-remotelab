@@ -58,11 +58,11 @@ detect_local_context() {
 
     # Priority order for context detection:
     # 1. Exact match for common local cluster names
-    # 2. Pattern match for variations
-    # 3. Check current context if it looks local
+    # 2. Pattern match for variations (e.g., colima, colima-default, colima-profile)
+    # NOTE: Removed flawed fallback logic that incorrectly identified remote contexts as local
 
     local patterns=(
-        "^colima$"
+        "colima"
         "^docker-desktop$"
         "^k3d-"
         "^kind-"
@@ -78,14 +78,8 @@ detect_local_context() {
         fi
     done
 
-    # Check if current context looks like a local cluster (not an ARN or remote URL)
-    local current
-    current=$(kubectl config current-context 2>/dev/null || echo "")
-    if [[ -n "$current" ]] && [[ ! "$current" =~ ^arn: ]] && [[ ! "$current" =~ \. ]]; then
-        echo "$current"
-        return 0
-    fi
-
+    # No local context found - do NOT fall back to current context
+    # as it may be a remote cluster
     echo ""
     return 1
 }
@@ -112,19 +106,31 @@ switch_to_local_context() {
 Available contexts:"
             kubectl config get-contexts 2>/dev/null || echo "  (none)"
             echo ""
+            error "DANGER: Currently using context '${current_context}' which is NOT a recognized local cluster."
+            error "This script is designed for LOCAL DEVELOPMENT ONLY."
+            error "Deploying to a remote cluster could cause damage or data loss."
+            echo ""
             echo "Troubleshooting steps:"
             echo "  1. Ensure Colima is installed and running with Kubernetes:"
             echo "     brew install colima kubectl docker"
             echo "     colima start --kubernetes --cpu 6 --memory 8 --disk 100"
             echo "  2. Verify with: kubectl config get-contexts"
-            echo "  3. Look for a context named 'colima'"
+            echo "  3. Look for a context with 'colima' in the name (e.g., 'colima', 'colima-default')"
             echo ""
             echo "If using a different local Kubernetes tool (Docker Desktop, minikube, etc.),"
             echo "ensure it's running and has created a kubeconfig context."
+            echo ""
+            error "Aborting deployment to prevent accidental remote cluster modification."
             return 1
         fi
 
         log "Detected local context: ${target_context}"
+
+        # Extra safety check: warn if currently on a non-local context
+        if [[ "$current_context" != "$target_context" ]] && [[ "$current_context" != "none" ]]; then
+            warning "Currently on context '${current_context}' which does NOT match the detected local context '${target_context}'"
+            warning "This could be a remote cluster - switching to local context for safety"
+        fi
     else
         target_context="default"
     fi

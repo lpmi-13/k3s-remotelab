@@ -36,31 +36,196 @@ fi
 echo "=== Deploying Remotelab K3s Stack ==="
 echo ""
 
-# Switch to local cluster context
-echo "Ensuring kubectl is configured for local cluster..."
-switch_to_local_context || {
-    echo "Warning: Could not switch to local cluster context. Continuing with current context."
-    echo "Current context: $(kubectl config current-context 2>/dev/null || echo 'none')"
-}
-echo ""
+# Detect OS and handle context switching
+OS=$(uname -s)
 
-# Ensure Colima is running on macOS
-if [[ "$PLATFORM" == "macos" ]]; then
-    if command -v colima &>/dev/null; then
-        if ! colima status &>/dev/null; then
-            echo "  → Colima is not running. Starting Colima with Kubernetes..."
-            colima start --kubernetes --cpu 6 --memory 8 --disk 100
-            echo "  → Waiting for Colima to initialize..."
-            sleep 15
-            echo "  ✓ Colima started"
-        else
-            echo "  ✓ Colima is already running"
+if [[ "$OS" == "Darwin" ]]; then
+    echo "macOS detected - configuring Colima environment..."
+
+    # Check if Colima is installed
+    if ! command -v colima &>/dev/null; then
+        echo "  ❌ ERROR: Colima is not installed"
+        echo "  → Install with: brew install colima"
+        exit 1
+    fi
+
+    # Ensure Colima is running with containerd runtime
+    # Colima runtime can't be changed after VM creation, so we must
+    # delete and recreate if it was created with docker runtime.
+    COLIMA_RUNTIME=""
+    if colima list --json 2>/dev/null | grep -q '"runtime":"docker"'; then
+        COLIMA_RUNTIME="docker"
+    elif colima list --json 2>/dev/null | grep -q '"runtime":"containerd"'; then
+        COLIMA_RUNTIME="containerd"
+    fi
+
+    if [[ "$COLIMA_RUNTIME" == "docker" ]]; then
+        echo "  ⚠ Colima is using Docker runtime — Linkerd requires containerd."
+        echo "  → Deleting existing Colima instance and recreating with containerd..."
+        colima delete --force --data
+        COLIMA_RUNTIME=""
+    fi
+
+    if [[ -z "$COLIMA_RUNTIME" ]]; then
+        echo "  → Cleaning up any leftover runtime data..."
+        colima delete --force --data 2>/dev/null || true
+        echo "  → Starting Colima with Kubernetes and containerd runtime..."
+        colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
+        echo "  → Waiting for Colima to initialize..."
+        sleep 15
+        echo "  ✓ Colima started with containerd runtime"
+    elif ! colima status &>/dev/null; then
+        echo "  → Colima VM exists but is not running. Starting..."
+        colima start
+        echo "  → Waiting for Colima to initialize..."
+        sleep 15
+        echo "  ✓ Colima started"
+    else
+        echo "  ✓ Colima is already running with containerd runtime"
+    fi
+
+    # Find any colima-related context
+    echo "  → Detecting Colima Kubernetes context..."
+    COLIMA_CONTEXT=$(kubectl config get-contexts -o name 2>/dev/null | grep -i "colima" | head -n 1)
+
+    if [ -z "$COLIMA_CONTEXT" ]; then
+        echo "  → Colima context not found, attempting to recover..."
+
+        # Try restarting Kubernetes to trigger context re-registration
+        echo "  → Restarting Colima Kubernetes to re-register context..."
+        colima kubernetes reset --force 2>/dev/null || colima kubernetes start 2>/dev/null || true
+        sleep 5
+
+        # Retry finding context
+        COLIMA_CONTEXT=$(kubectl config get-contexts -o name 2>/dev/null | grep -i "colima" | head -n 1)
+    fi
+
+    if [ -z "$COLIMA_CONTEXT" ]; then
+        echo "  → Auto-registration failed, manually extracting kubeconfig..."
+
+        # Extract kubeconfig from Colima VM and merge it
+        KUBECONFIG_TEMP=$(mktemp)
+        if colima ssh -- sudo cat /etc/rancher/k3s/k3s.yaml > "$KUBECONFIG_TEMP" 2>/dev/null; then
+            # Get the server port from the extracted config
+            SERVER_PORT=$(grep -o 'server: https://127.0.0.1:[0-9]*' "$KUBECONFIG_TEMP" | grep -o '[0-9]*$')
+
+            if [ -n "$SERVER_PORT" ]; then
+                # Extract base64-encoded certificates
+                CERT_DATA_B64=$(grep 'certificate-authority-data:' "$KUBECONFIG_TEMP" | awk '{print $2}')
+                CLIENT_CERT_B64=$(grep 'client-certificate-data:' "$KUBECONFIG_TEMP" | awk '{print $2}')
+                CLIENT_KEY_B64=$(grep 'client-key-data:' "$KUBECONFIG_TEMP" | awk '{print $2}')
+
+                # Decode certificates to temp files (kubectl needs file paths, not raw data)
+                CA_FILE=$(mktemp)
+                CERT_FILE=$(mktemp)
+                KEY_FILE=$(mktemp)
+                echo "$CERT_DATA_B64" | base64 -d > "$CA_FILE"
+                echo "$CLIENT_CERT_B64" | base64 -d > "$CERT_FILE"
+                echo "$CLIENT_KEY_B64" | base64 -d > "$KEY_FILE"
+
+                # Create the colima cluster, credentials, and context
+                kubectl config set-cluster colima \
+                    --server="https://127.0.0.1:${SERVER_PORT}" \
+                    --certificate-authority="$CA_FILE" \
+                    --embed-certs=true 2>/dev/null
+
+                kubectl config set-credentials colima \
+                    --client-certificate="$CERT_FILE" \
+                    --client-key="$KEY_FILE" \
+                    --embed-certs=true 2>/dev/null
+
+                kubectl config set-context colima \
+                    --cluster=colima \
+                    --user=colima 2>/dev/null
+
+                # Clean up temp cert files
+                rm -f "$CA_FILE" "$CERT_FILE" "$KEY_FILE"
+
+                COLIMA_CONTEXT="colima"
+                echo "  ✓ Manually created colima context"
+            fi
+        fi
+        rm -f "$KUBECONFIG_TEMP"
+    fi
+
+    if [ -z "$COLIMA_CONTEXT" ]; then
+        echo "  ❌ ERROR: Could not create or find Colima kubectl context"
+        echo ""
+        echo "Available contexts:"
+        kubectl config get-contexts -o name | sed 's/^/    - /'
+        echo ""
+        echo "Try manually resetting Colima:"
+        echo "  colima delete --data && colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100"
+        exit 1
+    fi
+
+    echo "  ✓ Found Colima context: ${COLIMA_CONTEXT}"
+
+    # Automatically switch to colima context
+    echo "  → Switching to ${COLIMA_CONTEXT} context..."
+    kubectl config use-context "${COLIMA_CONTEXT}" > /dev/null
+
+    # Verify we're on the correct colima context
+    CURRENT_CONTEXT=$(kubectl config current-context)
+    if [[ "$CURRENT_CONTEXT" != "$COLIMA_CONTEXT" ]]; then
+        echo "  ❌ ERROR: Failed to switch to colima context"
+        echo "  Expected: ${COLIMA_CONTEXT}"
+        echo "  Current: ${CURRENT_CONTEXT}"
+        exit 1
+    fi
+
+    echo "  ✓ Successfully switched to ${COLIMA_CONTEXT} context"
+
+    # Verify kubectl can actually connect to the cluster
+    echo "  → Verifying cluster connectivity..."
+    if ! kubectl cluster-info &>/dev/null; then
+        echo "  ❌ ERROR: Cannot connect to Colima Kubernetes cluster"
+        echo "  → The context exists but the cluster is not responding"
+        echo "  → Try: colima kubernetes reset"
+        exit 1
+    fi
+    echo "  ✓ Cluster is responding"
+else
+    echo "Linux detected - verifying kubectl configuration..."
+    # On Linux, just verify kubectl is working
+    if ! kubectl cluster-info &>/dev/null; then
+        echo "  ❌ ERROR: Cannot connect to Kubernetes cluster"
+        echo "  → Ensure k3s is installed and running"
+        exit 1
+    fi
+    echo "  ✓ kubectl is configured and working"
+fi
+
+# Verify nodes are using containerd, not Docker.
+# Linkerd requires containerd and we do not support the Docker runtime.
+echo "  → Verifying container runtime on cluster nodes..."
+NODE_RUNTIMES=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.containerRuntimeVersion}{"\n"}{end}' 2>/dev/null)
+if echo "$NODE_RUNTIMES" | grep -qi docker; then
+    echo "  ⚠ Docker container runtime detected on node(s):"
+    echo "$NODE_RUNTIMES" | sed 's/^/       /'
+    if [[ "$OS" == "Darwin" ]]; then
+        echo "  → Deleting Colima VM and recreating with containerd..."
+        colima delete --force --data
+        colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
+        echo "  → Waiting for Colima to initialize..."
+        sleep 15
+        echo "  ✓ Colima recreated with containerd runtime"
+
+        # Re-verify the runtime after recreation
+        NODE_RUNTIMES=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.containerRuntimeVersion}{"\n"}{end}' 2>/dev/null)
+        if echo "$NODE_RUNTIMES" | grep -qi docker; then
+            echo "  ❌ ERROR: Nodes are still reporting Docker runtime after Colima recreation."
+            echo "$NODE_RUNTIMES" | sed 's/^/       /'
+            exit 1
         fi
     else
-        echo "  ⚠ Warning: Colima not installed. Install with: brew install colima"
-        echo "  → Continuing with current kubectl context..."
+        echo "  ❌ ERROR: Linkerd and this stack require containerd."
+        echo "  → Ensure k3s is configured with containerd (the default) and not Docker."
+        exit 1
     fi
 fi
+echo "  ✓ All nodes using containerd"
+echo ""
 
 # Function to forcefully clean up a namespace by removing finalizers
 # This function ensures namespaces can always be deleted, even when stuck in Terminating state.
