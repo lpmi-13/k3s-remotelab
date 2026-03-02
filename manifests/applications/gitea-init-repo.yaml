@@ -210,11 +210,22 @@ spec:
                 - uses: actions/setup-python@v4
                   with:
                     python-version: '3.11'
-                - name: Install and test
-                  env:
-                    FORCE_SCRIPT_NAME: ''
+                - name: Install dependencies
                   run: |
                     pip install -r requirements.txt
+                - name: Run tests
+                  env:
+                    FORCE_SCRIPT_NAME: ''
+                    DATABASE_ENGINE: 'sqlite'
+                    DB_HOST: ''
+                    DB_USER: ''
+                    DB_PASSWORD: ''
+                    DB_NAME: ''
+                    DB_PORT: ''
+                    REDIS_URL: ''
+                    CELERY_BROKER_URL: ''
+                    CELERY_RESULT_BACKEND: ''
+                  run: |
                     python manage.py test
 
             build-and-push:
