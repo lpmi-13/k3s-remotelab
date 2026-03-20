@@ -128,7 +128,8 @@ class ProductAPITestCase(APITestCase):
         url = reverse('product-list')
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(len(response.data['results']), 1)
 
     def test_retrieve_product(self):
         """Test retrieving a single product."""
@@ -177,7 +178,8 @@ class InventoryAPITestCase(APITestCase):
         url = reverse('inventory-list')
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(len(response.data['results']), 1)
 
     def test_retrieve_inventory(self):
         """Test retrieving a single inventory record."""
@@ -217,5 +219,5 @@ class InventoryAPITestCase(APITestCase):
         url = reverse('inventory-list')
         response = self.client.get(url, {'low_stock': 'true'})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response.data), 1)
-        self.assertEqual(response.data[0]['quantity'], 5)
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['quantity'], 5)

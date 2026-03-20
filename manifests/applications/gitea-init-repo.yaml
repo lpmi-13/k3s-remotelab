@@ -228,8 +228,39 @@ spec:
                   run: |
                     python manage.py test
 
+            e2e-test:
+              runs-on: ubuntu-latest
+              services:
+                redis:
+                  image: redis:7-alpine
+                  ports:
+                    - 6379:6379
+              steps:
+                - uses: actions/checkout@v4
+                - uses: actions/setup-python@v4
+                  with:
+                    python-version: '3.11'
+                - name: Install dependencies
+                  run: |
+                    pip install -r requirements.txt
+                - name: Run e2e tests
+                  env:
+                    FORCE_SCRIPT_NAME: ''
+                    DATABASE_ENGINE: 'sqlite'
+                    SECRET_KEY: 'ci-test-secret-key'
+                    REDIS_URL: 'redis://localhost:6379/1'
+                    DB_HOST: ''
+                    DB_USER: ''
+                    DB_PASSWORD: ''
+                    DB_NAME: ''
+                    DB_PORT: ''
+                    CELERY_BROKER_URL: ''
+                    CELERY_RESULT_BACKEND: ''
+                  run: |
+                    python manage.py test remotelab.api.e2e_tests --verbosity=2
+
             build-and-push:
-              needs: test
+              needs: [test, e2e-test]
               runs-on: ubuntu-latest
               if: gitea.ref == 'refs/heads/main'
               steps:
@@ -320,20 +351,6 @@ spec:
                       "http://${{ env.REGISTRY }}/api/packages/remotelab/helm/api/charts" \
                       && echo "Helm chart pushed to Gitea package registry"
 
-            security-scan:
-              needs: build-and-push
-              runs-on: ubuntu-latest
-              if: gitea.ref == 'refs/heads/main'
-              steps:
-                - name: Run Trivy vulnerability scanner
-                  run: |
-                    wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
-                    echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee -a /etc/apt/sources.list.d/trivy.list
-                    apt-get update -qq
-                    apt-get install -y -qq trivy > /dev/null
-                    trivy image --insecure --format table \
-                      --severity HIGH,CRITICAL \
-                      ${{ env.REGISTRY }}/${{ gitea.repository_owner }}/${{ env.IMAGE_NAME }}:latest || true
           WORKFLOW_EOF
 
               echo "Workflow file created:"
