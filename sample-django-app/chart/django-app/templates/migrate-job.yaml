@@ -28,15 +28,15 @@ spec:
         image: postgres:15
         env:
         - name: PGHOST
-          value: {{ .Values.env.DATABASE_HOST | quote }}
+          value: {{ .Values.env.DB_HOST | quote }}
         - name: PGPORT
-          value: {{ .Values.env.DATABASE_PORT | quote }}
+          value: {{ .Values.env.DB_PORT | quote }}
         - name: PGDATABASE
-          value: {{ .Values.env.DATABASE_NAME | quote }}
+          value: {{ .Values.env.DB_NAME | quote }}
         - name: PGUSER
-          value: {{ .Values.env.DATABASE_USER | quote }}
+          value: {{ .Values.env.DB_USER | quote }}
         - name: PGPASSWORD
-          value: {{ .Values.env.DATABASE_PASSWORD | quote }}
+          value: {{ .Values.env.DB_PASSWORD | quote }}
         command:
         - /bin/bash
         - -c
@@ -80,7 +80,7 @@ spec:
           set -e
           echo "=== Django Database Migrations ==="
           echo "Image: {{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          echo "Database: $DATABASE_NAME at $DATABASE_HOST:$DATABASE_PORT"
+          echo "Database: $DB_NAME at $DB_HOST:$DB_PORT"
           echo ""
 
           # Show current migration status

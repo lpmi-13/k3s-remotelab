@@ -515,6 +515,12 @@ echo "  ✓ Namespaces created (Linkerd injection enabled)"
 echo ""
 echo "Step 3: Installing ArgoCD..."
 kubectl apply --server-side --force-conflicts -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Delete ArgoCD network policies - they conflict with Linkerd mTLS proxy-to-proxy communication
+# Linkerd provides equivalent security via mutual TLS between all meshed pods
+echo "  → Removing ArgoCD network policies (Linkerd mTLS provides security)..."
+kubectl delete networkpolicies -n argocd --all 2>/dev/null || true
+
 echo "  → Waiting for ArgoCD to be ready..."
 kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
 echo "  ✓ ArgoCD ready"
@@ -741,10 +747,31 @@ else
 fi
 
 echo ""
-echo "Step 12: Django will be deployed via ArgoCD from OCI Helm chart..."
-echo "  → ArgoCD will automatically deploy Django from the OCI chart repository"
-echo "  → The initial Helm chart was pushed during repository initialization"
-echo "  → No direct kubectl apply needed - ArgoCD manages the deployment"
+echo "Step 12: Pushing local Helm chart to Gitea package registry..."
+echo "  → Packaging Helm chart from local source..."
+CHART_DIR="sample-django-app/chart"
+helm package "$CHART_DIR/django-app" -d /tmp/helm-charts/
+CHART_TGZ=$(ls /tmp/helm-charts/django-app-*.tgz | head -1)
+echo "  → Pushing chart: $(basename "$CHART_TGZ")"
+
+# Wait for Gitea to be accessible from host via port-forward
+GITEA_POD=$(kubectl get pods -n applications -l app=gitea -o jsonpath='{.items[0].metadata.name}')
+kubectl port-forward -n applications "$GITEA_POD" 3001:3000 &
+PF_PID=$!
+sleep 3
+
+# Push chart via port-forward
+curl -s -X POST \
+  -u "remotelab:remotelab" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary "@${CHART_TGZ}" \
+  "http://localhost:3001/api/packages/remotelab/helm/api/charts" && echo "" && echo "  ✓ Helm chart pushed to Gitea" || echo "  → Chart may already exist (OK)"
+
+kill $PF_PID 2>/dev/null || true
+wait $PF_PID 2>/dev/null || true
+rm -rf /tmp/helm-charts/
+
+echo "  → ArgoCD will automatically deploy Django from the chart repository"
 
 echo ""
 echo "Step 13: Deploying ArgoCD Applications..."

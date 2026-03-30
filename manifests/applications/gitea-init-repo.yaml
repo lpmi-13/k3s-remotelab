@@ -73,7 +73,48 @@ spec:
             REPO_CONTENT=$(curl -s -u "$USERNAME:$PASSWORD" "$GITEA_URL/api/v1/repos/$USERNAME/$REPO_NAME/contents")
 
             if echo "$REPO_CONTENT" | grep -q "manage.py" && echo "$REPO_CONTENT" | grep -q ".gitea"; then
-              echo "Repository already has correct content. Skipping reinitialization."
+              echo "Repository already has correct content."
+
+              # Still ensure Helm chart is in the package registry
+              echo "Checking if Helm chart exists in package registry..."
+              CHART_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+                -u "$USERNAME:$PASSWORD" \
+                "$GITEA_URL/api/v1/packages/$USERNAME?type=helm&q=django-app")
+
+              CHART_EXISTS=$(curl -s -u "$USERNAME:$PASSWORD" \
+                "$GITEA_URL/api/v1/packages/$USERNAME?type=helm&q=django-app")
+
+              if echo "$CHART_EXISTS" | grep -q '"name":"django-app"'; then
+                echo "Helm chart already exists in package registry. Skipping."
+                echo "=========================================="
+                echo "Django app repository already initialized!"
+                echo "=========================================="
+                echo "Repository URL: $GITEA_URL/$USERNAME/$REPO_NAME"
+                exit 0
+              fi
+
+              echo "Helm chart not found in package registry. Pushing..."
+              # Clone from Gitea to get the chart, then package and push
+              CLONE_DIR="/tmp/source-chart"
+              git config --global user.email "remotelab@localhost.local"
+              git config --global user.name "Remotelab"
+              git clone "http://$USERNAME:$PASSWORD@gitea:3000/$USERNAME/$REPO_NAME.git" "$CLONE_DIR" 2>&1
+              cd "$CLONE_DIR/chart"
+
+              # Install Helm
+              apk add --no-cache curl bash openssl
+              curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+              helm package django-app
+              CHART_TGZ=$(ls django-app-*.tgz | head -1)
+              echo "Chart package: $CHART_TGZ"
+              curl -X POST \
+                -u "$USERNAME:$PASSWORD" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary "@${CHART_TGZ}" \
+                "http://gitea:3000/api/packages/remotelab/helm/api/charts" \
+                && echo "Initial Helm chart pushed to Gitea package registry"
+
               echo "=========================================="
               echo "Django app repository already initialized!"
               echo "=========================================="
@@ -417,10 +458,12 @@ spec:
           helm package django-app
 
           echo "Pushing initial Helm chart to Gitea package registry..."
+          CHART_TGZ=$(ls django-app-*.tgz | head -1)
+          echo "Chart package: $CHART_TGZ"
           curl -X POST \
             -u "$USERNAME:$PASSWORD" \
             -H "Content-Type: application/octet-stream" \
-            --data-binary "@django-app-0.1.0.tgz" \
+            --data-binary "@${CHART_TGZ}" \
             "http://gitea:3000/api/packages/remotelab/helm/api/charts" \
             && echo "Initial Helm chart pushed to Gitea package registry"
 
