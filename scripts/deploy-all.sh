@@ -60,7 +60,7 @@ if [[ "$OS" == "Darwin" ]]; then
     fi
 
     if [[ "$COLIMA_RUNTIME" == "docker" ]]; then
-        echo "  ⚠ Colima is using Docker runtime — Linkerd requires containerd."
+        echo "  ⚠ Colima is using Docker runtime — this stack requires containerd."
         echo "  → Deleting existing Colima instance and recreating with containerd..."
         colima delete --force --data
         COLIMA_RUNTIME=""
@@ -197,7 +197,7 @@ else
 fi
 
 # Verify nodes are using containerd, not Docker.
-# Linkerd requires containerd and we do not support the Docker runtime.
+# The k3s container registry setup requires containerd.
 echo "  → Verifying container runtime on cluster nodes..."
 NODE_RUNTIMES=$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.containerRuntimeVersion}{"\n"}{end}' 2>/dev/null)
 if echo "$NODE_RUNTIMES" | grep -qi docker; then
@@ -219,7 +219,7 @@ if echo "$NODE_RUNTIMES" | grep -qi docker; then
             exit 1
         fi
     else
-        echo "  ❌ ERROR: Linkerd and this stack require containerd."
+        echo "  ❌ ERROR: This stack requires containerd."
         echo "  → Ensure k3s is configured with containerd (the default) and not Docker."
         exit 1
     fi
@@ -346,12 +346,6 @@ EOF
     colima ssh -- sudo tee /etc/rancher/k3s/registries.yaml < /tmp/registries.yaml > /dev/null
     rm /tmp/registries.yaml
 
-    # Add hosts entry for gitea (needed for internal service resolution)
-    if ! colima ssh -- sh -c 'grep -q "^10.43.200.100 gitea$" /etc/hosts'; then
-        colima ssh -- sh -c 'echo "10.43.200.100 gitea" | sudo tee -a /etc/hosts > /dev/null'
-        echo "  ✓ Added gitea hosts entry"
-    fi
-
     # Restart k3s to apply registry configuration
     colima ssh -- sh -c 'sudo systemctl restart k3s' 2>/dev/null || true
     echo "  ✓ k3s registry configuration applied"
@@ -470,56 +464,18 @@ else
 fi
 
 echo ""
-echo "Step 1: Installing Linkerd service mesh..."
-echo "  → Installing Gateway API CRDs..."
-kubectl apply --server-side --force-conflicts -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml > /dev/null 2>&1
-
-# Check if linkerd CLI is available and add to PATH
-if ! command -v linkerd &> /dev/null; then
-    LINKERD_PATH=$(get_linkerd_path)
-    if [[ -f "${LINKERD_PATH}/linkerd" ]]; then
-        export PATH=$PATH:${LINKERD_PATH}
-    fi
-fi
-
-# Check if Linkerd is already installed
-if kubectl get namespace linkerd > /dev/null 2>&1 && kubectl get configmap linkerd-config -n linkerd > /dev/null 2>&1; then
-    echo "  → Linkerd already installed, performing upgrade..."
-    echo "  → Upgrading Linkerd CRDs..."
-    linkerd upgrade --crds | kubectl apply -f - > /dev/null 2>&1
-    echo "  → Upgrading Linkerd control plane with fresh certificates (7-day validity)..."
-    linkerd upgrade --identity-issuance-lifetime=168h0m0s | kubectl apply -f -
-else
-    echo "  → Performing fresh Linkerd installation..."
-    echo "  → Installing Linkerd CRDs..."
-    linkerd install --crds | kubectl apply -f - > /dev/null 2>&1
-    echo "  → Installing Linkerd control plane with fresh certificates (7-day validity)..."
-    linkerd install --identity-issuance-lifetime=168h0m0s | kubectl apply -f -
-fi
-
-echo "  → Waiting for Linkerd to be ready..."
-kubectl wait --for=condition=available --timeout=300s deployment/linkerd-destination -n linkerd
-kubectl wait --for=condition=available --timeout=300s deployment/linkerd-proxy-injector -n linkerd
-echo "  ✓ Linkerd service mesh ready (mTLS enabled for all services, certificates valid for 7 days)"
-
-echo ""
-echo "Step 2: Deploying Kubernetes resources..."
+echo "Step 1: Deploying Kubernetes resources..."
 
 # Deploy namespaces first
 echo "  → Creating namespaces..."
 kubectl apply -f manifests/monitoring/namespace.yaml
 kubectl apply -f manifests/applications/namespace.yaml
 kubectl apply -f manifests/gitops/argocd-namespace.yaml
-echo "  ✓ Namespaces created (Linkerd injection enabled)"
+echo "  ✓ Namespaces created"
 
 echo ""
-echo "Step 3: Installing ArgoCD..."
+echo "Step 2: Installing ArgoCD..."
 kubectl apply --server-side --force-conflicts -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-
-# Delete ArgoCD network policies - they conflict with Linkerd mTLS proxy-to-proxy communication
-# Linkerd provides equivalent security via mutual TLS between all meshed pods
-echo "  → Removing ArgoCD network policies (Linkerd mTLS provides security)..."
-kubectl delete networkpolicies -n argocd --all 2>/dev/null || true
 
 echo "  → Waiting for ArgoCD to be ready..."
 kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
@@ -556,14 +512,14 @@ kubectl wait --for=condition=available --timeout=120s deployment/argocd-server -
 echo "  ✓ ArgoCD configured"
 
 echo ""
-echo "Step 4: Deploying monitoring stack..."
+echo "Step 3: Deploying monitoring stack..."
 kubectl apply -f manifests/monitoring/
 echo "  → Waiting for Prometheus..."
 kubectl wait --for=condition=available --timeout=300s deployment/prometheus -n monitoring
 echo "  ✓ Monitoring stack ready"
 
 echo ""
-echo "Step 5: Deploying infrastructure applications..."
+echo "Step 4: Deploying infrastructure applications..."
 echo "  → Deploying PostgreSQL, Redis, and Gitea..."
 kubectl apply -f manifests/applications/namespace.yaml
 kubectl apply -f manifests/applications/postgresql.yaml
@@ -580,7 +536,7 @@ kubectl wait --for=condition=available --timeout=300s deployment/gitea -n applic
 echo "  ✓ Infrastructure applications ready"
 
 echo ""
-echo "Step 6: Ensuring Traefik ingress controller is installed..."
+echo "Step 5: Ensuring Traefik ingress controller is installed..."
 # Check if Traefik CRDs exist (indicates Traefik is installed)
 if ! kubectl get crd middlewares.traefik.io &>/dev/null; then
     echo "  → Traefik not found, installing via Helm..."
@@ -633,14 +589,14 @@ else
 fi
 
 echo ""
-echo "Step 7: Configuring ingress..."
+echo "Step 6: Configuring ingress..."
 kubectl apply -f manifests/infrastructure/
 echo "  ✓ Ingress configured"
 echo "  → Waiting for ingress to be ready..."
 sleep 10  # Give ingress a moment to configure
 
 echo ""
-echo "Step 8: Setting up Gitea and container registry..."
+echo "Step 7: Setting up Gitea and container registry..."
 
 # Create Gitea admin user automatically via Kubernetes Job
 echo "  → Creating Gitea admin user (remotelab/remotelab)..."
@@ -657,7 +613,7 @@ kubectl wait --for=condition=complete --timeout=180s job/gitea-init-user -n appl
 echo "  ✓ Gitea admin user ready (username: remotelab, password: remotelab)"
 
 echo ""
-echo "Step 9: Generating Gitea Actions runner token..."
+echo "Step 8: Generating Gitea Actions runner token..."
 echo "  → Waiting for Gitea to be fully initialized..."
 sleep 10
 
@@ -673,7 +629,7 @@ fi
 echo "  ✓ Generated token: ${NEW_TOKEN:0:20}..."
 
 echo ""
-echo "Step 10: Deploying Gitea Actions runner..."
+echo "Step 9: Deploying Gitea Actions runner..."
 echo "  → Deploying Gitea Actions runner..."
 kubectl apply -f manifests/applications/gitea-actions-runner.yaml
 
@@ -699,7 +655,7 @@ kubectl wait --for=condition=ready --timeout=60s pod -l app=act-runner -n applic
 echo "  ✓ Gitea Actions runner deployed and registered"
 
 echo ""
-echo "Step 11: Initializing repositories in Gitea..."
+echo "Step 10: Initializing repositories in Gitea..."
 
 # Delete old repository initialization jobs if they exist (for idempotency)
 kubectl delete job gitea-init-repo -n applications --ignore-not-found=true 2>/dev/null || true
@@ -747,34 +703,31 @@ else
 fi
 
 echo ""
-echo "Step 12: Pushing local Helm chart to Gitea package registry..."
-echo "  → Packaging Helm chart from local source..."
-CHART_DIR="sample-django-app/chart"
-helm package "$CHART_DIR/django-app" -d /tmp/helm-charts/
-CHART_TGZ=$(ls /tmp/helm-charts/django-app-*.tgz | head -1)
-echo "  → Pushing chart: $(basename "$CHART_TGZ")"
+echo "Step 11: Verifying Helm chart in Gitea package registry..."
+# The gitea-init-repo job packages and pushes the initial Helm chart.
+# Verify it's available before proceeding to ArgoCD deployment.
+MAX_CHART_WAIT=60
+CHART_WAIT=0
+while [ $CHART_WAIT -lt $MAX_CHART_WAIT ]; do
+    if kubectl exec -n applications deployment/gitea -c gitea -- \
+        curl -sf "http://localhost:3000/api/packages/remotelab/helm/api/charts" 2>/dev/null | grep -q "django-app"; then
+        echo "  ✓ Helm chart found in Gitea package registry"
+        break
+    fi
+    sleep 5
+    CHART_WAIT=$((CHART_WAIT + 5))
+    if [ $CHART_WAIT -lt $MAX_CHART_WAIT ]; then
+        echo "  → Waiting for Helm chart to appear... (${CHART_WAIT}s)"
+    fi
+done
 
-# Wait for Gitea to be accessible from host via port-forward
-GITEA_POD=$(kubectl get pods -n applications -l app=gitea -o jsonpath='{.items[0].metadata.name}')
-kubectl port-forward -n applications "$GITEA_POD" 3001:3000 &
-PF_PID=$!
-sleep 3
-
-# Push chart via port-forward
-curl -s -X POST \
-  -u "remotelab:remotelab" \
-  -H "Content-Type: application/octet-stream" \
-  --data-binary "@${CHART_TGZ}" \
-  "http://localhost:3001/api/packages/remotelab/helm/api/charts" && echo "" && echo "  ✓ Helm chart pushed to Gitea" || echo "  → Chart may already exist (OK)"
-
-kill $PF_PID 2>/dev/null || true
-wait $PF_PID 2>/dev/null || true
-rm -rf /tmp/helm-charts/
-
-echo "  → ArgoCD will automatically deploy Django from the chart repository"
+if [ $CHART_WAIT -ge $MAX_CHART_WAIT ]; then
+    echo "  ⚠ Warning: Helm chart not found after ${MAX_CHART_WAIT}s"
+    echo "  → The init-repo job may not have pushed it yet. Continuing anyway..."
+fi
 
 echo ""
-echo "Step 13: Deploying ArgoCD Applications..."
+echo "Step 12: Deploying ArgoCD Applications..."
 echo "  → Deploying ArgoCD applications from local manifests..."
 kubectl apply -f argocd-apps/
 
@@ -798,7 +751,7 @@ echo "  → Note: ArgoCD applications will now sync from Gitea repository"
 echo "  → ArgoCD will manage future updates automatically"
 
 echo ""
-echo "Step 14: Waiting for Django to be deployed via ArgoCD..."
+echo "Step 13: Waiting for Django to be deployed via ArgoCD..."
 echo "  → Waiting for ArgoCD to sync django-api application..."
 sleep 30  # Give ArgoCD time to detect and sync the Helm chart
 
@@ -839,11 +792,6 @@ echo "========================================"
 echo "  Deployment Complete!"
 echo "========================================"
 echo ""
-echo "Security Features:"
-echo "  - mTLS enabled for all service-to-service communication (via Linkerd)"
-echo "  - HTTPS with self-signed certificates for external access"
-echo "  - Automatic HTTP to HTTPS redirect"
-echo ""
 echo "Services Available (HTTPS with self-signed certificates):"
 echo "  - ArgoCD:     https://localhost/argocd"
 echo "  - Gitea:      https://localhost/gitea (username: remotelab, password: remotelab)"
@@ -852,7 +800,6 @@ echo "  - Prometheus: https://localhost/prometheus"
 echo "  - Grafana:    https://localhost/grafana (admin/admin)"
 echo ""
 echo "  Note: Accept the self-signed certificate warning in your browser"
-echo "  Note: HTTP requests are automatically redirected to HTTPS"
 echo ""
 echo "ArgoCD Credentials:"
 echo "  Username: admin"
@@ -862,32 +809,7 @@ echo "Gitea Credentials:"
 echo "  Username: remotelab"
 echo "  Password: remotelab"
 echo ""
-echo "Container Registry (Gitea):"
-echo "  - Registry (external): localhost:30300"
-echo "  - Registry (internal): gitea:3000"
-echo "  - Django image: localhost:30300/remotelab/django-app:latest"
-echo "  - Repository: https://localhost/gitea/remotelab/django-app"
-echo ""
-echo "GitOps Configuration:"
-echo "  - Manifests repository: https://localhost/gitea/remotelab/manifests"
-echo "  - ArgoCD is configured to sync from Gitea"
-echo "  - View applications: https://localhost/argocd"
-echo "  - Check sync status: kubectl get applications -n argocd"
-echo ""
-echo "CI/CD Pipeline (Gitea Actions):"
-echo "  - Django app repository created with automated build and push workflow"
-echo "  - Push to main branch triggers automatic build and push to Gitea registry"
-echo "  - Images stored in: localhost:30300/remotelab/django-app"
-echo "  - View workflow runs: https://localhost/gitea/remotelab/django-app/actions"
-echo "  - Runner status: kubectl get pods -n applications -l app=act-runner"
-echo ""
-echo "Working with Git Repositories:"
-echo "  The system uses HTTPS with self-signed certificates. You need to configure git:"
-echo ""
-echo "  Configure git to trust localhost (run this once):"
-echo "    git config --global http.https://localhost/.sslVerify false"
-echo ""
-echo "Development Workflow - Clone, Edit, and Deploy:"
+echo "Development Workflow:"
 echo "  1. Configure git (one-time setup):"
 echo "     git config --global http.https://localhost/.sslVerify false"
 echo ""
@@ -895,34 +817,11 @@ echo "  2. Clone the Django app repository:"
 echo "     git clone https://localhost/gitea/remotelab/django-app.git"
 echo "     cd django-app"
 echo ""
-echo "  3. Make your code changes and commit:"
-echo "     # Edit files as needed"
-echo "     git add ."
-echo "     git commit -m 'Description of your changes'"
+echo "  3. Make changes, commit, and push:"
+echo "     git add . && git commit -m 'My change' && git push origin main"
 echo ""
-echo "  4. Push to trigger automatic deployment:"
-echo "     git push origin main"
-echo ""
-echo "  5. Monitor the deployment pipeline:"
-echo "     - Gitea Actions workflow: https://localhost/gitea/remotelab/django-app/actions"
-echo "     - ArgoCD sync status: https://localhost/argocd"
-echo "     - Pod status: kubectl get pods -n applications -l app=django -w"
-echo "     - Application logs: kubectl logs -n applications -l app=django -f"
-echo ""
-echo "  What happens automatically:"
-echo "     - Gitea Actions builds the Django image from source"
-echo "     - Image is pushed to Gitea registry (localhost:30300/remotelab/django-app:X.X.X)"
-echo "     - Helm chart is packaged and pushed to Gitea package registry"
-echo "     - Security scanning runs via Trivy"
-echo "     - ArgoCD detects new Helm chart version and updates deployment"
-echo ""
-echo "Key Features:"
-echo "  - mTLS encryption for all pod-to-pod communication via Linkerd service mesh"
-echo "  - All services use path-based routing - no /etc/hosts configuration required"
-echo "  - Fully automated CI/CD - no local Docker builds needed"
-echo "  - All container images built and stored in Gitea registry"
-echo ""
-echo "Verify mTLS Status:"
-echo "  - Check Linkerd dashboard: export PATH=\$PATH:$(get_linkerd_path) && linkerd viz install | kubectl apply -f - && linkerd viz dashboard"
-echo "  - View meshed pods: kubectl get pods -n applications -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.spec.containers[*].name}{\"\\n\"}{end}'"
+echo "  4. Monitor the pipeline:"
+echo "     - Gitea Actions: https://localhost/gitea/remotelab/django-app/actions"
+echo "     - ArgoCD:        https://localhost/argocd"
+echo "     - Pod status:    kubectl get pods -n applications -l app.kubernetes.io/name=django-app -w"
 echo ""

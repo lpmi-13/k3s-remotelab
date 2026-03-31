@@ -4,7 +4,7 @@ djangorestframework==3.15.2
 gunicorn==23.0.0
 
 # Database
-psycopg==3.2.3
+psycopg[binary]==3.2.3
 
 # Cache and message broker
 redis==5.2.0
@@ -19,6 +19,15 @@ strawberry-graphql-django==0.48.0
 
 # Monitoring
 django-prometheus==2.3.1
+
+# OpenTelemetry tracing
+opentelemetry-api==1.22.0
+opentelemetry-sdk==1.22.0
+opentelemetry-exporter-otlp-proto-grpc==1.22.0
+opentelemetry-instrumentation-django==0.43b0
+opentelemetry-instrumentation-psycopg==0.43b0
+opentelemetry-instrumentation-redis==0.43b0
+opentelemetry-instrumentation-celery==0.43b0
 
 # Utilities
 python-dateutil==2.9.0.post0

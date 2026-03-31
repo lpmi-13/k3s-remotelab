@@ -23,6 +23,7 @@ env:
   REDIS_URL: "redis://redis:6379/1"
   DEBUG: "false"
   SECRET_KEY: "django-insecure-remotelab-key-change-in-production"
+  FORCE_SCRIPT_NAME: "/django"
   # Database configuration
   DATABASE_ENGINE: "postgresql"
   DB_HOST: "postgresql"
@@ -33,6 +34,9 @@ env:
   # Celery configuration
   CELERY_BROKER_URL: "redis://redis:6379/0"
   CELERY_RESULT_BACKEND: "redis://redis:6379/0"
+  # OpenTelemetry tracing
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4317"
+  OTEL_SERVICE_NAME: "django-app"
 
 persistence:
   enabled: true

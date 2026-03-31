@@ -63,8 +63,6 @@ spec:
     metadata:
       labels:
         app: act-runner
-      annotations:
-        linkerd.io/inject: disabled
     spec:
       securityContext:
         fsGroup: 1000

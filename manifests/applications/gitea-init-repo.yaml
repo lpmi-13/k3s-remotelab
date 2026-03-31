@@ -10,8 +10,6 @@ spec:
     metadata:
       labels:
         app: gitea-init-repo
-      annotations:
-        linkerd.io/inject: disabled
     spec:
       restartPolicy: OnFailure
       initContainers:

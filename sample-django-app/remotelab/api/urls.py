@@ -13,8 +13,10 @@ urlpatterns = [
     path('system/', views.system_info, name='system_info'),
     path('info/', views.api_info, name='api_info'),
 
-    # Task status endpoint
-    path('tasks/<str:task_id>/', views.task_status, name='task_status'),
+    # Celery task trigger endpoints
+    path('tasks/reorder-check/', views.trigger_reorder_check, name='trigger_reorder_check'),
+    path('tasks/inventory-report/', views.trigger_inventory_report, name='trigger_inventory_report'),
+    path('tasks/<str:task_id>/status/', views.task_status, name='task_status'),
 
     # Include router URLs
     path('', include(router.urls)),

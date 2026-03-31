@@ -59,13 +59,3 @@ celeryBeat:
       cpu: 50m
       memory: 128Mi
 
-# Database configuration (credentials in secrets)
-database:
-  host: postgresql
-  port: "5432"
-  name: remotelab
-
-# Redis configuration
-redis:
-  url: "redis://redis:6379/1"
-  celeryBroker: "redis://redis:6379/0"

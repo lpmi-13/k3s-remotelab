@@ -1,11 +1,6 @@
 # Local environment values for django-app
 # Environment-specific non-sensitive configuration
 
-# Override base values for local development
-env:
-  DEBUG: "false"
-  FORCE_SCRIPT_NAME: "/django"
-
 # Local environment might use smaller resources
 resources:
   limits:

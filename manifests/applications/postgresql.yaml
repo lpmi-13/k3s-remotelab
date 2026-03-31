@@ -42,10 +42,30 @@ spec:
         volumeMounts:
         - name: postgresql-storage
           mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
       volumes:
       - name: postgresql-storage
         persistentVolumeClaim:
           claimName: postgresql-pvc
+      - name: init-scripts
+        configMap:
+          name: postgresql-init-scripts
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgresql-init-scripts
+  namespace: applications
+data:
+  create-django-db.sh: |
+    #!/bin/bash
+    set -e
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      CREATE USER remotelab WITH PASSWORD 'remotelab';
+      CREATE DATABASE remotelab OWNER remotelab;
+      GRANT ALL PRIVILEGES ON DATABASE remotelab TO remotelab;
+    EOSQL
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

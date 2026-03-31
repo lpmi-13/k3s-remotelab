@@ -4,5 +4,3 @@ metadata:
   name: monitoring
   labels:
     name: monitoring
-  annotations:
-    linkerd.io/inject: enabled

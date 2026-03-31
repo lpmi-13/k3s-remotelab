@@ -127,6 +127,51 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
 
+# OpenTelemetry tracing configuration
+OTEL_ENABLED = os.environ.get('OTEL_EXPORTER_OTLP_ENDPOINT', '')
+if OTEL_ENABLED:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+    from opentelemetry.sdk.resources import Resource
+
+    resource = Resource.create({
+        "service.name": os.environ.get('OTEL_SERVICE_NAME', 'django-app'),
+        "service.version": "0.3.0",
+        "deployment.environment": os.environ.get('OTEL_ENV', 'local'),
+    })
+
+    provider = TracerProvider(resource=resource)
+    processor = BatchSpanProcessor(OTLPSpanExporter())
+    provider.add_span_processor(processor)
+    trace.set_tracer_provider(provider)
+
+    # Auto-instrument Django
+    from opentelemetry.instrumentation.django import DjangoInstrumentor
+    DjangoInstrumentor().instrument()
+
+    # Auto-instrument psycopg (database)
+    try:
+        from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
+        PsycopgInstrumentor().instrument()
+    except Exception:
+        pass
+
+    # Auto-instrument Redis
+    try:
+        from opentelemetry.instrumentation.redis import RedisInstrumentor
+        RedisInstrumentor().instrument()
+    except Exception:
+        pass
+
+    # Auto-instrument Celery
+    try:
+        from opentelemetry.instrumentation.celery import CeleryInstrumentor
+        CeleryInstrumentor().instrument()
+    except Exception:
+        pass
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {

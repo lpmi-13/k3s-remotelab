@@ -4,5 +4,3 @@ metadata:
   name: applications
   labels:
     name: applications
-  annotations:
-    linkerd.io/inject: enabled

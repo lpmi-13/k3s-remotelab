@@ -75,6 +75,9 @@ def api_info(request):
             'graphql': '/graphql/',
             'products': '/api/products/',
             'inventory': '/api/inventory/',
+            'trigger_reorder_check': '/api/tasks/reorder-check/ [POST]',
+            'trigger_inventory_report': '/api/tasks/inventory-report/ [POST]',
+            'task_status': '/api/tasks/{task_id}/status/',
         },
         'features': [
             'Health checks',
@@ -118,6 +121,14 @@ def landing_page(request):
             {
                 'url': '/django/api/inventory/',
                 'description': 'Inventory tracking REST API'
+            },
+            {
+                'url': '/django/api/tasks/reorder-check/',
+                'description': 'Trigger reorder check (POST)'
+            },
+            {
+                'url': '/django/api/tasks/inventory-report/',
+                'description': 'Trigger inventory report (POST)'
             },
             {
                 'url': '/django/metrics',
@@ -191,11 +202,39 @@ class InventoryViewSet(viewsets.ModelViewSet):
 
 
 # ============================================================
-# Task status endpoint
+# Celery task endpoints
 # ============================================================
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def trigger_reorder_check(request):
+    """Trigger the reorder level check task asynchronously."""
+    from .tasks import check_reorder_levels
+
+    result = check_reorder_levels.delay()
+    return Response({
+        'task_id': result.id,
+        'status': 'submitted',
+        'task': 'check_reorder_levels',
+    }, status=status.HTTP_202_ACCEPTED)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def trigger_inventory_report(request):
+    """Trigger the inventory report generation task asynchronously."""
+    from .tasks import generate_inventory_report
+
+    result = generate_inventory_report.delay()
+    return Response({
+        'task_id': result.id,
+        'status': 'submitted',
+        'task': 'generate_inventory_report',
+    }, status=status.HTTP_202_ACCEPTED)
+
+
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def task_status(request, task_id):
     """Get the status of an async task."""
     from celery.result import AsyncResult
