@@ -7,10 +7,9 @@ import (
 	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
 )
 
-// MissingConfigMap removes the appConfig section from values.yaml so the
-// ConfigMap is not created, but the Deployment still references it via envFrom.
-// This causes the pods to fail to start because the ConfigMap they depend on
-// does not exist.
+// MissingConfigMap prevents the ConfigMap template from rendering while the
+// Deployment still references it via envFrom. This causes pods to fail to start
+// because the ConfigMap they depend on does not exist.
 type MissingConfigMap struct{}
 
 func (s *MissingConfigMap) Name() string {
@@ -18,39 +17,31 @@ func (s *MissingConfigMap) Name() string {
 }
 
 func (s *MissingConfigMap) Description() string {
-	return "Removes the appConfig section from values.yaml so the ConfigMap is not created, " +
-		"but the Deployment still references it via envFrom, causing pod startup failure."
+	return "Prevents the application ConfigMap from rendering while the Deployment still " +
+		"references it via envFrom, causing pod startup failure."
 }
 
 func (s *MissingConfigMap) Inject(gitClient *git.Client) error {
 	return gitClient.CloneAndModify(
 		"chore: update application configuration",
 		func(w *git.WorkDir) error {
-			data, err := w.ReadFile(ValuesFile)
+			data, err := w.ReadFile(ConfigMapFile)
 			if err != nil {
-				return fmt.Errorf("failed to read %s: %w", ValuesFile, err)
+				return fmt.Errorf("failed to read %s: %w", ConfigMapFile, err)
 			}
 
 			content := string(data)
-
-			// Replace the appConfig section: set enabled to false and remove data.
-			// We look for the appConfig block and disable it.
-			if !strings.Contains(content, "appConfig:") {
-				return fmt.Errorf("appConfig section not found in values.yaml")
-			}
-
-			// Replace "appConfig:\n  enabled: true" with "appConfig:\n  enabled: false"
 			modified := strings.Replace(content,
-				"appConfig:\n  enabled: true",
-				"appConfig:\n  enabled: false",
+				"{{- if .Values.appConfig.enabled }}",
+				"{{- if false }}",
 				1,
 			)
 
 			if modified == content {
-				return fmt.Errorf("failed to modify appConfig section (already disabled?)")
+				return fmt.Errorf("failed to disable ConfigMap template in %s", ConfigMapFile)
 			}
 
-			return w.WriteFile(ValuesFile, []byte(modified))
+			return w.WriteFile(ConfigMapFile, []byte(modified))
 		},
 	)
 }
@@ -59,29 +50,28 @@ func (s *MissingConfigMap) Revert(gitClient *git.Client) error {
 	return gitClient.CloneAndModify(
 		"chore: restore application configuration",
 		func(w *git.WorkDir) error {
-			data, err := w.ReadFile(ValuesFile)
+			data, err := w.ReadFile(ConfigMapFile)
 			if err != nil {
-				return fmt.Errorf("failed to read %s: %w", ValuesFile, err)
+				return fmt.Errorf("failed to read %s: %w", ConfigMapFile, err)
 			}
 
 			content := string(data)
 			modified := strings.Replace(content,
-				"appConfig:\n  enabled: false",
-				"appConfig:\n  enabled: true",
+				"{{- if false }}",
+				"{{- if .Values.appConfig.enabled }}",
 				1,
 			)
 
-			return w.WriteFile(ValuesFile, []byte(modified))
+			return w.WriteFile(ConfigMapFile, []byte(modified))
 		},
 	)
 }
 
 func (s *MissingConfigMap) Explanation() string {
-	return "The appConfig.enabled flag in values.yaml was set to false, which prevented the " +
-		"ConfigMap from being created. However, the Deployment template still had an envFrom " +
-		"reference to the ConfigMap (controlled by the same flag in the template). When the " +
-		"ConfigMap was missing, pods could not start. The fix is to set appConfig.enabled back " +
-		"to true in values.yaml, or to remove the envFrom reference in the Deployment template."
+	return "The ConfigMap template condition was changed so the ConfigMap no longer rendered, " +
+		"while appConfig.enabled remained true. The Deployment still references the missing " +
+		"ConfigMap via envFrom, so Kubernetes cannot start the pods. The fix is to restore the " +
+		"ConfigMap template condition or remove the Deployment's envFrom dependency."
 }
 
 func (s *MissingConfigMap) DiagnoseCommands() []string {

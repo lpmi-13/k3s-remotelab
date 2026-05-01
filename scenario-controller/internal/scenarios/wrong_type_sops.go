@@ -9,11 +9,9 @@ import (
 	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
 )
 
-// WrongTypeSops re-encrypts the secrets file with an integer value where a
-// string is expected (e.g., DB_PORT as the integer 5432 instead of the string
-// "5432"). This causes Helm template rendering to fail because the deployment
-// template uses {{ $value | quote }} which behaves differently for integers,
-// or the application itself rejects the wrong type.
+// WrongTypeSops re-encrypts the secrets file with a scalar where the chart
+// expects a map. This causes Helm template rendering to fail while ranging over
+// .Values.secrets.
 type WrongTypeSops struct{}
 
 func (s *WrongTypeSops) Name() string {
@@ -21,9 +19,8 @@ func (s *WrongTypeSops) Name() string {
 }
 
 func (s *WrongTypeSops) Description() string {
-	return "Re-encrypts the secrets file with an integer value where a string is expected " +
-		"(DB_PORT: 5432 instead of DB_PORT: \"5432\"), causing type errors in Helm rendering " +
-		"or application startup."
+	return "Re-encrypts the secrets file with the wrong YAML shape (secrets is a scalar " +
+		"instead of a map), causing Helm rendering to fail."
 }
 
 func (s *WrongTypeSops) Inject(gitClient *git.Client) error {
@@ -37,15 +34,8 @@ func (s *WrongTypeSops) Inject(gitClient *git.Client) error {
 				return fmt.Errorf("SOPS_AGE_KEY or AGE_PUBLIC_KEY not configured")
 			}
 
-			// Create a plaintext secrets file with a wrong-type value.
-			// DB_PORT as an integer instead of a string. The secrets override
-			// values from values.yaml, so this will cause the Deployment env
-			// to get an integer where the template expects a string.
 			plaintext := `# Secrets for django-app
-secrets:
-  DB_PASSWORD: "remotelab"
-  SECRET_KEY: "django-insecure-remotelab-key-change-in-production"
-  DB_PORT: 5432
+secrets: "not-a-map"
 `
 			plaintextPath := filepath.Join(w.Dir(), "plaintext-secrets.yaml")
 			if err := os.WriteFile(plaintextPath, []byte(plaintext), 0o644); err != nil {
@@ -150,11 +140,10 @@ secrets:
 }
 
 func (s *WrongTypeSops) Explanation() string {
-	return "The secrets.yaml.enc file was re-encrypted with DB_PORT set to the integer 5432 " +
-		"instead of the string \"5432\". When Helm renders the template, the {{ $value | quote }} " +
-		"function wraps the integer differently, or the application receives an unexpected type. " +
-		"The fix is to re-encrypt the secrets file with the correct string type: " +
-		"DB_PORT: \"5432\" (quoted to ensure it remains a string)."
+	return "The secrets.yaml.enc file was re-encrypted with .Values.secrets set to a scalar " +
+		"string instead of the map the Helm templates expect. Helm cannot range over that value " +
+		"as key/value environment variables, so manifest generation fails. The fix is to " +
+		"re-encrypt secrets.yaml.enc with a proper secrets map."
 }
 
 func (s *WrongTypeSops) DiagnoseCommands() []string {

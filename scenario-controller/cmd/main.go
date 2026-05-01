@@ -64,7 +64,6 @@ func main() {
 	registry.Register(&scenarios.StuckSync{})
 	registry.Register(&scenarios.StaleJob{})
 	registry.Register(&scenarios.OrphanedResource{})
-	registry.Register(&scenarios.PVCIncompatible{})
 
 	log.Printf("registered %d scenarios: %v", registry.Count(), registry.Names())
 
@@ -116,12 +115,18 @@ func runLoop(
 		}
 		log.Printf("scenario %q injected successfully, pushed to git", scenario.Name())
 
-		// Step 4: Wait for ArgoCD to detect the problem (become unhealthy/degraded).
-		log.Println("waiting for ArgoCD to become unhealthy or degraded...")
+		// Step 4: Prompt ArgoCD to detect the new Git state immediately.
+		if err := argoClient.RequestHardRefresh(ctx); err != nil {
+			log.Printf("WARNING: failed to request ArgoCD hard refresh: %v", err)
+		} else {
+			log.Println("requested ArgoCD hard refresh")
+		}
+
+		log.Println("waiting for ArgoCD to report a sync or health problem...")
 		if err := waitForUnhealthy(ctx, argoClient); err != nil {
 			return err
 		}
-		log.Println("application is now unhealthy/degraded - scenario injection confirmed")
+		log.Println("application is now reporting a sync or health problem - scenario injection confirmed")
 		log.Println("helpful diagnostic commands:")
 		for _, cmd := range scenario.DiagnoseCommands() {
 			log.Printf("  $ %s", cmd)
@@ -228,4 +233,3 @@ func envInt(key string, defaultVal int) int {
 	}
 	return n
 }
-

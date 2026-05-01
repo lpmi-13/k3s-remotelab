@@ -7,10 +7,8 @@ import (
 	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
 )
 
-// StaleJob modifies the migration Job template by adding an environment variable.
-// Since Kubernetes Jobs are immutable once created, ArgoCD cannot update the
-// existing Job and will report a sync error. The user must delete the old Job
-// so ArgoCD can recreate it with the new spec.
+// StaleJob modifies the migration Job template so the PreSync migration fails.
+// ArgoCD cannot complete the sync while the hook Job is failing.
 type StaleJob struct{}
 
 func (s *StaleJob) Name() string {
@@ -18,8 +16,8 @@ func (s *StaleJob) Name() string {
 }
 
 func (s *StaleJob) Description() string {
-	return "Modifies the migration Job template (adds an env var), causing ArgoCD to fail " +
-		"when trying to update the immutable Job resource. User must delete the old Job."
+	return "Modifies the migration Job template so the PreSync migration hook fails, " +
+		"blocking the ArgoCD sync."
 }
 
 func (s *StaleJob) Inject(gitClient *git.Client) error {
@@ -33,14 +31,8 @@ func (s *StaleJob) Inject(gitClient *git.Client) error {
 
 			content := string(data)
 
-			// Add an extra environment variable to the migrate container.
-			// We insert it just after the "command:" line in the migrate container.
-			// The new env var is harmless but changes the Job spec, making it immutable-incompatible.
-			marker := "        command:\n        - /bin/bash\n        - -c\n        - |"
-			injection := "        env:\n" +
-				"        - name: MIGRATION_TIMEOUT\n" +
-				"          value: \"300\"\n" +
-				"        command:\n        - /bin/bash\n        - -c\n        - |"
+			marker := "          set -e\n          echo \"Running Django migrations...\""
+			injection := "          set -e\n          echo \"ERROR: migration dependency check failed\"\n          exit 1\n          echo \"Running Django migrations...\""
 
 			modified := strings.Replace(content, marker, injection, 1)
 
@@ -64,12 +56,8 @@ func (s *StaleJob) Revert(gitClient *git.Client) error {
 
 			content := string(data)
 
-			// Remove the injected env block.
-			injection := "        env:\n" +
-				"        - name: MIGRATION_TIMEOUT\n" +
-				"          value: \"300\"\n" +
-				"        command:"
-			marker := "        command:"
+			injection := "          set -e\n          echo \"ERROR: migration dependency check failed\"\n          exit 1\n          echo \"Running Django migrations...\""
+			marker := "          set -e\n          echo \"Running Django migrations...\""
 
 			modified := strings.Replace(content, injection, marker, 1)
 			return w.WriteFile(MigrateJobFile, []byte(modified))
@@ -78,12 +66,10 @@ func (s *StaleJob) Revert(gitClient *git.Client) error {
 }
 
 func (s *StaleJob) Explanation() string {
-	return "A new environment variable (MIGRATION_TIMEOUT) was added to the migration Job " +
-		"template. Kubernetes Jobs are immutable: once created, their spec cannot be changed. " +
-		"When ArgoCD tried to sync the updated Job spec, it failed because the existing Job " +
-		"could not be patched. The fix is to delete the old Job (kubectl delete job " +
-		"django-migrate-latest -n applications) so ArgoCD can create a fresh one with the " +
-		"updated spec, or revert the change in git."
+	return "The PreSync migration Job was changed to fail before running Django migrations. " +
+		"ArgoCD waits for hook Jobs to complete before applying the rest of the sync, so the " +
+		"application stays stuck in a failed/progressing sync state. The fix is to remove the " +
+		"failing command from the migration Job template and sync again."
 }
 
 func (s *StaleJob) DiagnoseCommands() []string {

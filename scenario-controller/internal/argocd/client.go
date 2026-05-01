@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 )
@@ -76,6 +77,23 @@ func (c *Client) GetAppStatus(ctx context.Context) (health string, sync string, 
 	}
 
 	return health, sync, nil
+}
+
+// RequestHardRefresh asks ArgoCD to immediately refresh the Application and
+// invalidate cached manifest generation results.
+func (c *Client) RequestHardRefresh(ctx context.Context) error {
+	patch := []byte(`{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}`)
+	_, err := c.dynClient.Resource(applicationGVR).Namespace(c.namespace).Patch(
+		ctx,
+		c.appName,
+		types.MergePatchType,
+		patch,
+		metav1.PatchOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to request hard refresh for application %q: %w", c.appName, err)
+	}
+	return nil
 }
 
 // extractNestedString safely reads a nested string field from an unstructured

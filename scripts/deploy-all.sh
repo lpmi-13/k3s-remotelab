@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/platform.sh"
 
+TRAEFIK_CRD_DEFINITIONS_URL="https://raw.githubusercontent.com/traefik/traefik/v3.5/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml"
+
 show_help() {
     echo "Usage: ./deploy-all.sh [OPTIONS]"
     echo ""
@@ -26,6 +28,189 @@ elif [[ -n "$1" ]]; then
     echo "Error: Unknown option '$1'"
     show_help
 fi
+
+run_privileged() {
+    if [ "$(id -u)" -eq 0 ]; then
+        "$@"
+    else
+        sudo "$@"
+    fi
+}
+
+get_k3s_node_internal_ip() {
+    local node_name="$1"
+    kubectl get node "$node_name" \
+        -o jsonpath='{range .status.addresses[?(@.type=="InternalIP")]}{.address}{end}' 2>/dev/null || true
+}
+
+get_kubernetes_endpoint_ip() {
+    local endpoint_ip
+    endpoint_ip=$(kubectl get endpointslices.discovery.k8s.io -n default \
+        -l kubernetes.io/service-name=kubernetes \
+        -o jsonpath='{.items[0].endpoints[0].addresses[0]}' 2>/dev/null || true)
+
+    if [ -z "$endpoint_ip" ]; then
+        endpoint_ip=$(kubectl get endpoints kubernetes -n default \
+            -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)
+    fi
+
+    echo "$endpoint_ip"
+}
+
+update_k3s_ip_config() {
+    local desired_ip="$1"
+    local config_file="/etc/rancher/k3s/config.yaml"
+    local temp_file
+    local next_file
+    local timestamp
+
+    temp_file=$(mktemp)
+    next_file=$(mktemp)
+    timestamp=$(date +%Y%m%d%H%M%S)
+
+    if run_privileged test -f "$config_file"; then
+        run_privileged awk '!/^(node-ip|advertise-address):[[:space:]]/' "$config_file" > "$temp_file"
+        run_privileged cp "$config_file" "${config_file}.bak.${timestamp}"
+    else
+        : > "$temp_file"
+        run_privileged mkdir -p "$(dirname "$config_file")"
+    fi
+
+    cat "$temp_file" > "$next_file"
+    if [ -s "$next_file" ]; then
+        printf '\n' >> "$next_file"
+    fi
+    {
+        printf 'node-ip: %s\n' "$desired_ip"
+        printf 'advertise-address: %s\n' "$desired_ip"
+    } >> "$next_file"
+
+    run_privileged install -m 0644 "$next_file" "$config_file"
+    rm -f "$temp_file" "$next_file"
+}
+
+wait_for_k3s_api() {
+    local waited=0
+
+    while ! kubectl cluster-info &>/dev/null; do
+        if [ $waited -ge 180 ]; then
+            echo "  ERROR: k3s API did not become ready after restart"
+            exit 1
+        fi
+        sleep 3
+        waited=$((waited + 3))
+    done
+}
+
+wait_for_k3s_advertised_ip() {
+    local node_name="$1"
+    local desired_ip="$2"
+    local waited=0
+    local node_ip
+    local endpoint_ip
+
+    while [ $waited -lt 180 ]; do
+        node_ip=$(get_k3s_node_internal_ip "$node_name")
+        endpoint_ip=$(get_kubernetes_endpoint_ip)
+
+        if [[ "$node_ip" == "$desired_ip" && "$endpoint_ip" == "$desired_ip" ]]; then
+            return 0
+        fi
+
+        sleep 3
+        waited=$((waited + 3))
+    done
+
+    echo "  ERROR: k3s still advertises node IP '${node_ip:-unknown}' and API endpoint '${endpoint_ip:-unknown}'"
+    echo "         Expected both to be '${desired_ip}'"
+    exit 1
+}
+
+refresh_linux_coredns() {
+    if ! kubectl -n kube-system get deployment coredns &>/dev/null; then
+        echo "  WARNING: CoreDNS deployment not found; skipping DNS refresh"
+        return 0
+    fi
+
+    echo "  Refreshing CoreDNS resolver state..."
+    kubectl -n kube-system rollout restart deployment/coredns >/dev/null
+    if ! kubectl -n kube-system rollout status deployment/coredns --timeout=120s >/dev/null; then
+        echo "  ERROR: CoreDNS did not become ready after restart"
+        exit 1
+    fi
+    echo "  OK: CoreDNS ready"
+}
+
+wait_for_traefik_middleware_api() {
+    local waited=0
+
+    while [ $waited -lt 60 ]; do
+        if kubectl get middlewares.traefik.io -A &>/dev/null; then
+            return 0
+        fi
+        sleep 2
+        waited=$((waited + 2))
+    done
+
+    echo "  ERROR: Traefik Middleware API did not become discoverable"
+    exit 1
+}
+
+ensure_traefik_crds() {
+    if kubectl get crd middlewares.traefik.io &>/dev/null; then
+        wait_for_traefik_middleware_api
+        echo "  OK: Traefik CRDs present"
+        return 0
+    fi
+
+    echo "  Installing Traefik CRDs..."
+    kubectl apply -f "$TRAEFIK_CRD_DEFINITIONS_URL"
+    kubectl wait --for=condition=Established --timeout=120s crd/middlewares.traefik.io >/dev/null
+    wait_for_traefik_middleware_api
+    echo "  OK: Traefik CRDs present"
+}
+
+repair_linux_k3s_ip_if_needed() {
+    local desired_ip
+    local node_name
+    local node_ip
+    local endpoint_ip
+
+    desired_ip=$(get_node_ip)
+    if [[ -z "$desired_ip" || "$desired_ip" == "127."* ]]; then
+        echo "  ERROR: Could not determine a non-loopback host IP for k3s"
+        exit 1
+    fi
+
+    node_name=$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+    if [ -z "$node_name" ]; then
+        echo "  ERROR: Could not determine k3s node name"
+        exit 1
+    fi
+
+    node_ip=$(get_k3s_node_internal_ip "$node_name")
+    endpoint_ip=$(get_kubernetes_endpoint_ip)
+
+    if [[ "$node_ip" == "$desired_ip" && "$endpoint_ip" == "$desired_ip" ]]; then
+        echo "  OK: k3s advertises current host IP ($desired_ip)"
+        return 0
+    fi
+
+    echo "  Detected k3s IP drift:"
+    echo "    current host IP:       $desired_ip"
+    echo "    k3s node InternalIP:   ${node_ip:-unknown}"
+    echo "    Kubernetes API endpoint: ${endpoint_ip:-unknown}"
+    echo "  Updating /etc/rancher/k3s/config.yaml and restarting k3s..."
+
+    update_k3s_ip_config "$desired_ip"
+    run_privileged systemctl restart k3s
+
+    echo "  Waiting for k3s API after restart..."
+    wait_for_k3s_api
+    kubectl wait --for=condition=Ready --timeout=180s "node/$node_name" >/dev/null
+    wait_for_k3s_advertised_ip "$node_name" "$desired_ip"
+    echo "  OK: k3s now advertises $desired_ip"
+}
 
 echo "=== GitOps Failure Lab - Deployment ==="
 echo ""
@@ -99,6 +284,8 @@ else
         exit 1
     fi
     echo "  OK: kubectl connected"
+    repair_linux_k3s_ip_if_needed
+    refresh_linux_coredns
 fi
 
 # Verify cluster connectivity
@@ -294,6 +481,7 @@ if ! kubectl get deployment traefik -n kube-system &>/dev/null; then
     kubectl wait --for=condition=available --timeout=120s deployment/traefik -n kube-system
 fi
 echo "  OK: Traefik ready"
+ensure_traefik_crds
 
 # Apply ingress rules
 kubectl apply -f "$REPO_DIR/manifests/infrastructure/"
@@ -315,7 +503,9 @@ echo "Step 10: Initializing Django app repository in Gitea..."
 
 # Check for required tools
 if ! command -v sops &>/dev/null; then
-    echo "  ERROR: 'sops' is not installed. Install with: brew install sops (macOS)"
+    echo "  ERROR: 'sops' is not installed on the host running this script"
+    echo "         Step 10 encrypts the sample Django secrets locally before pushing them to Gitea."
+    echo "         Install with: brew install sops (macOS), or use your Linux package manager / https://github.com/getsops/sops/releases"
     exit 1
 fi
 
@@ -458,7 +648,9 @@ echo ""
 # --- Deploy Scenario Controller ---
 echo "Step 15: Deploying Scenario Controller..."
 kubectl apply -f "$REPO_DIR/manifests/applications/scenario-controller.yaml"
-echo "  OK: Scenario controller deployed (will start injecting failures after app is healthy)"
+kubectl rollout restart deployment/scenario-controller -n applications >/dev/null
+kubectl rollout status deployment/scenario-controller -n applications --timeout=180s
+echo "  OK: Scenario controller deployed with the latest local image (will start injecting failures after app is healthy)"
 echo ""
 
 # --- Done ---
