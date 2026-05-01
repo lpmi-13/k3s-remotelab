@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scenario-controller
+  namespace: applications
+  labels:
+    app: scenario-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scenario-controller
+  template:
+    metadata:
+      labels:
+        app: scenario-controller
+    spec:
+      serviceAccountName: scenario-controller
+      containers:
+      - name: controller
+        image: ghcr.io/lpmi-13/k3s-remotelab-scenario-controller:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: ARGOCD_SERVER
+          value: "argocd-server.argocd.svc.cluster.local:8080"
+        - name: ARGOCD_APP_NAME
+          value: "django-app"
+        - name: GITEA_URL
+          value: "http://gitea.applications.svc.cluster.local:3000"
+        - name: GITEA_USERNAME
+          value: "remotelab"
+        - name: GITEA_PASSWORD
+          value: "remotelab"
+        - name: GITEA_REPO
+          value: "django-app"
+        - name: MIN_DELAY_SECONDS
+          value: "0"
+        - name: MAX_DELAY_SECONDS
+          value: "0"
+        - name: SOPS_AGE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: sops-age-key
+              key: key.txt
+        - name: AGE_PUBLIC_KEY
+          valueFrom:
+            configMapKeyRef:
+              name: sops-config
+              key: age-public-key
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scenario-controller
+  namespace: applications
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: scenario-controller
+rules:
+- apiGroups: ["argoproj.io"]
+  resources: ["applications"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scenario-controller
+subjects:
+- kind: ServiceAccount
+  name: scenario-controller
+  namespace: applications
+roleRef:
+  kind: ClusterRole
+  name: scenario-controller
+  apiGroup: rbac.authorization.k8s.io

@@ -36,10 +36,6 @@ get_disk_space_gb() {
     fi
 }
 
-get_linkerd_path() {
-    echo "${HOME}/.linkerd2/bin"
-}
-
 is_colima() {
     [[ "$PLATFORM" == "macos" ]] && command -v colima &>/dev/null && colima status &>/dev/null
 }

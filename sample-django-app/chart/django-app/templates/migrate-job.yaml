@@ -7,7 +7,6 @@ metadata:
     {{- include "django-app.labels" . | nindent 4 }}
     app.kubernetes.io/component: migration
   annotations:
-    # Run migrations after database init but before main deployment
     argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
     argocd.argoproj.io/sync-wave: "1"
@@ -20,8 +19,6 @@ spec:
         {{- include "django-app.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: migration
     spec:
-      imagePullSecrets:
-        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
       restartPolicy: OnFailure
       initContainers:
       - name: wait-for-db
@@ -42,27 +39,18 @@ spec:
         - -c
         - |
           set -e
-          echo "=== Migration Job: Waiting for Database ==="
-          echo "Database: $PGDATABASE at $PGHOST:$PGPORT"
-
+          echo "Waiting for database..."
           max_attempts=30
           attempt=1
-
           while [ $attempt -le $max_attempts ]; do
             if pg_isready -h "$PGHOST" -p "$PGPORT" -d "$PGDATABASE" -U "$PGUSER" -t 5 > /dev/null 2>&1; then
-              if psql -c "SELECT 1" > /dev/null 2>&1; then
-                echo "✓ Database is ready for migrations"
-                exit 0
-              fi
+              echo "Database is ready for migrations"
+              exit 0
             fi
-
-            if [ $attempt -lt $max_attempts ]; then
-              sleep 2
-            fi
+            sleep 2
             attempt=$((attempt + 1))
           done
-
-          echo "✗ ERROR: Database not ready for migrations"
+          echo "ERROR: Database not ready for migrations"
           exit 1
       containers:
       - name: migrate
@@ -73,28 +61,15 @@ spec:
         - name: {{ $key }}
           value: {{ $value | quote }}
         {{- end }}
+        {{- range $key, $value := .Values.secrets }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
         command:
         - /bin/bash
         - -c
         - |
           set -e
-          echo "=== Django Database Migrations ==="
-          echo "Image: {{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          echo "Database: $DB_NAME at $DB_HOST:$DB_PORT"
-          echo ""
-
-          # Show current migration status
-          echo "Current migration status:"
-          python manage.py showmigrations || true
-          echo ""
-
-          # Run migrations
-          echo "Running migrations..."
+          echo "Running Django migrations..."
           python manage.py migrate --noinput
-
-          # Show final status
-          echo ""
-          echo "✓ Migrations completed successfully"
-          echo ""
-          echo "Final migration status:"
-          python manage.py showmigrations
+          echo "Migrations completed successfully"

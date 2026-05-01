@@ -1,31 +1,6 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: gitea-registry-ingress
-  namespace: applications
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-spec:
-  ingressClassName: traefik
-  tls:
-  - hosts:
-    - localhost
-    secretName: remotelab-tls
-  rules:
-  - http:
-      paths:
-      - path: /v2
-        pathType: Prefix
-        backend:
-          service:
-            name: gitea
-            port:
-              number: 3000
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
   name: remotelab-ingress
   namespace: applications
   annotations:
@@ -56,39 +31,6 @@ spec:
             port:
               number: 8000
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: monitoring-ingress
-  namespace: monitoring
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: monitoring-strip-prometheus@kubernetescrd,monitoring-strip-grafana@kubernetescrd
-spec:
-  ingressClassName: traefik
-  tls:
-  - hosts:
-    - localhost
-    secretName: monitoring-tls
-  rules:
-  - http:
-      paths:
-      - path: /prometheus
-        pathType: Prefix
-        backend:
-          service:
-            name: prometheus
-            port:
-              number: 9090
-      - path: /grafana
-        pathType: Prefix
-        backend:
-          service:
-            name: grafana
-            port:
-              number: 3000
----
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -108,23 +50,3 @@ spec:
   stripPrefix:
     prefixes:
       - /django
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-prometheus
-  namespace: monitoring
-spec:
-  stripPrefix:
-    prefixes:
-      - /prometheus
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-grafana
-  namespace: monitoring
-spec:
-  stripPrefix:
-    prefixes:
-      - /grafana

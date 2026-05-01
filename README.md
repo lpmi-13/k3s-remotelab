@@ -1,637 +1,283 @@
-# K3s Remotelab
+# GitOps Failure Lab
 
-A GitOps-driven, single-node K3s remotelab setup that's designed to be multi-node ready. This project includes ArgoCD as the core GitOps engine, Gitea for Git hosting, a Django REST Framework application, and a complete monitoring stack with Prometheus and Grafana.
+A hands-on ArgoCD troubleshooting environment that randomly injects realistic GitOps failures into a running application. You diagnose and fix each issue using the ArgoCD UI and kubectl, then the system explains what went wrong and moves on to the next challenge.
 
-![CI/CD Pipeline Flow](docs/cicd-pipeline-diagram.png)
+## How It Works
 
-![K3s Remotelab Architecture](docs/architecture-diagram.png)
+1. A Django application is deployed via ArgoCD from a Helm chart stored in Gitea
+2. Secrets are encrypted with SOPS/age and decrypted at sync time by helm-secrets
+3. A scenario controller watches the ArgoCD Application health status
+4. When the app is healthy, the controller waits a random interval then injects a failure by pushing a malicious commit to Gitea
+5. ArgoCD detects the drift and the app becomes unhealthy/out-of-sync
+6. You troubleshoot and fix the issue using ArgoCD UI + kubectl
+7. Once fixed, the controller logs an explanation of what happened and the cycle repeats
+
+## Failure Scenarios
+
+| Scenario | What Breaks | How to Fix |
+|----------|-------------|------------|
+| **Missing ConfigMap** | `appConfig.enabled` set to false, ConfigMap disappears but Deployment still references it | Re-enable the ConfigMap in values.yaml |
+| **SOPS Decrypt Failure** | SOPS metadata block removed from encrypted secrets file | Restore the sops metadata or re-encrypt the file |
+| **HMAC Mismatch** | Ciphertext tampered without updating MAC | Re-encrypt the secrets file with valid data |
+| **Wrong Type in SOPS** | Integer value where string expected (e.g. `DB_PORT: 5432` vs `"5432"`) | Fix the type in the encrypted values |
+| **Stuck Sync** | Health check path changed to non-existent endpoint, pods never become Ready | Fix the health check path in values.yaml |
+| **Stale Job** | Immutable Job spec modified, ArgoCD can't update it | Delete the old Job via ArgoCD UI or kubectl |
+| **Orphaned Resource** | Deployment/Service renamed, old resources remain (prune disabled) | Delete orphaned resources via ArgoCD UI |
+| **PVC Incompatible** | PostgreSQL major version changed, data files incompatible | Revert the image version or delete the PVC |
 
 ## Architecture
 
-- **GitOps-first**: ArgoCD manages all deployments with declarative configuration
-- **Zero-trust networking**: Linkerd service mesh provides automatic mTLS for all service-to-service communication
-- **Single-node first, multi-node ready**: Uses standard Kubernetes resources that scale naturally
-- **Simple networking**: Uses path-based routing with Traefik for seamless access
-- **Local storage**: Uses local-path provisioner for single-node, easily switchable to distributed storage
-- **Continuous deployment**: Complete ArgoCD setup with App-of-Apps pattern for automated deployments
-
-## Services
-
-- **Linkerd**: Service mesh for automatic mTLS and observability
-- **ArgoCD**: GitOps deployment management
-- **Gitea**: Self-hosted Git service with PostgreSQL backend
-- **Django**: REST Framework application with Redis caching
-- **Prometheus**: Metrics collection and monitoring
-- **Grafana**: Metrics visualization and dashboards
-
-## Platform Support
-
-| Platform | Kubernetes Provider | Setup |
-|----------|-------------------|-------|
-| Linux (Ubuntu/Debian) | Native k3s | Automated via `install-k3s.sh` |
-| macOS | Colima with k3s | Install Colima via Homebrew |
-
-### macOS Prerequisites
-
-1. Install Colima and Docker CLI via Homebrew:
-   ```bash
-   brew install colima kubectl docker
-   ```
-
-2. Start Colima with Kubernetes (k3s) and containerd runtime:
-   ```bash
-   colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
-   ```
-   This creates a lightweight VM running k3s with:
-   - 6 CPUs
-   - 8GB RAM
-   - 100GB disk
-   - containerd runtime (required for Linkerd compatibility)
-
-   **Note:** Unlike native k3s on Linux, Colima's k3s does not include Traefik by default.
-   The `deploy-all.sh` script will automatically install Traefik if it's not present.
-
-3. (Optional) For local image building, install nerdctl:
-   ```bash
-   brew install nerdctl
-   ```
-   Note: The `docker` CLI won't work with containerd runtime. Use `nerdctl` instead, or build images within the cluster.
-
-4. Verify the cluster is ready:
-   ```bash
-   kubectl get nodes
-   # Should show: colima   Ready   control-plane,master   ...
-   ```
-
-5. Run `./scripts/install-k3s.sh` (optional - Colima already provides k3s)
-
-### Managing Colima
-
-```bash
-# Check status
-colima status
-
-# Stop the VM
-colima stop
-
-# Start the VM (after reboot)
-colima start
-
-# Delete and recreate (full reset)
-colima delete
-colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
 ```
+┌─────────────────────────────────────────────────────────┐
+│                    Local K3s Cluster                      │
+│                                                          │
+│  ┌──────────┐    watches     ┌──────────────────────┐   │
+│  │ Scenario │───────────────>│   ArgoCD             │   │
+│  │Controller│                │   (Application CR)   │   │
+│  └─────┬────┘                └──────────┬───────────┘   │
+│        │ pushes                          │ syncs         │
+│        │ bad commits                     │               │
+│        v                                 v               │
+│  ┌──────────┐                ┌──────────────────────┐   │
+│  │  Gitea   │<───────────────│   Django App         │   │
+│  │  (Git)   │   helm chart   │   (Deployment,       │   │
+│  └──────────┘   + SOPS       │    ConfigMap,         │   │
+│                  secrets      │    Service, Job)      │   │
+│                               └──────────────────────┘   │
+│                                                          │
+│  Backing services: PostgreSQL, Redis                     │
+│  Ingress: Traefik (path-based routing)                   │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **ArgoCD** - GitOps controller, syncs Helm chart from Gitea to cluster
+- **Gitea** - Local Git server (no CI, no registry, git-only)
+- **Django** - Target application (pre-built image from GHCR)
+- **Scenario Controller** - Go binary that injects failures and monitors recovery
+- **SOPS/age** - Secrets encryption (helm-secrets plugin on ArgoCD repo-server)
+- **Traefik** - Ingress controller with path-based routing
 
 ## Quick Start
 
 ### Prerequisites
 
-#### Linux
-- Ubuntu/Debian Linux (tested on Ubuntu 20.04+)
-- At least 4GB RAM
-- Docker installed and running
-- Sudo access (for K3s installation only)
+| Tool | macOS Install | Purpose |
+|------|---------------|---------|
+| Colima | `brew install colima` | Lightweight VM with k3s |
+| kubectl | `brew install kubectl` | Kubernetes CLI |
+| age | `brew install age` | Encryption key generation |
+| sops | `brew install sops` | Secrets encryption |
+| Helm | `brew install helm` | Required for Traefik install |
 
-#### macOS
-- macOS 10.15+ (Catalina or newer)
-- Colima installed and running with Kubernetes and containerd:
-  ```bash
-  brew install colima kubectl
-  colima start --kubernetes --runtime containerd --cpu 6 --memory 8 --disk 100
-  ```
-- (Optional) For local image building: `brew install nerdctl`
+On Linux, you need k3s installed directly (no Colima needed), plus `age`, `sops`, and `helm`.
 
-### Installation
+### Deploy
 
 ```bash
-# 1. Install K3s (one-time setup, requires sudo)
-./scripts/install-k3s.sh
-
-# 2. Deploy the complete stack (fully automated!)
 ./scripts/deploy-all.sh
 ```
 
-The deployment script is:
-- ✅ **Fully automated** - no user interaction required
-- ✅ **No sudo required** - runs with user permissions
-- ✅ **No persistent config changes** - uses temporary Docker config
-- ✅ **Fully idempotent** - safe to run multiple times
+This takes about 5-10 minutes and:
+1. Starts Colima with k3s (or verifies existing k3s on Linux)
+2. Installs ArgoCD with SOPS/helm-secrets support
+3. Generates age encryption keys
+4. Deploys PostgreSQL, Redis, and Gitea
+5. Pushes the Django Helm chart to Gitea with encrypted secrets
+6. Creates the ArgoCD Application
+7. Builds and deploys the scenario controller
+8. Waits for everything to be healthy
 
-**What it does:**
-1. Cleans up any existing resources (can be skipped with `--skip-cleanup`)
-2. Installs Linkerd service mesh with automatic mTLS for all services (certificates valid for 7 days)
-3. Installs Traefik ingress controller if not already present (required for Colima, included by default in native k3s)
-4. Deploys all Kubernetes resources (ArgoCD, monitoring, infrastructure)
-5. Waits for Gitea to be ready
-6. Automatically creates Gitea admin user (username: `remotelab`, password: `remotelab`)
-7. Initializes Django repository in Gitea with automated workflow
-8. Pulls Django image from ghcr.io/lpmi-13/k3s-remotelab-django and pushes to Gitea registry
-9. Deploys Django application with Linkerd sidecar injection
+### Access
 
-## Service Access
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| ArgoCD | https://localhost/argocd | admin / remotelab |
+| Gitea | https://localhost/gitea | remotelab / remotelab |
+| Django | https://localhost/django/api/health/ | - |
 
-Once deployed, all services are available exclusively via **HTTPS** with self-signed certificates:
+Accept the self-signed certificate warning in your browser.
 
-- **ArgoCD**: https://localhost/argocd
-  - Username: `admin`
-  - Password: Displayed at end of deployment
-- **Gitea**: https://localhost/gitea
-  - Username: `remotelab`
-  - Password: `remotelab`
-  - Container registry: https://localhost/v2
-- **Django API**: https://localhost/django
-  - Health check: `/django/api/health/`
-  - System info: `/django/api/system/`
-- **Prometheus**: https://localhost/prometheus
-- **Grafana**: https://localhost/grafana (admin/admin)
+### Cleanup
 
-**Security Note:**
-- **mTLS encryption**: All service-to-service communication is automatically encrypted via Linkerd
-- **HTTPS**: External access uses HTTPS with self-signed TLS certificates (auto-generated by Traefik)
-- **HTTP redirect**: HTTP requests are automatically redirected to HTTPS
-- You'll need to accept the certificate warning in your browser on first visit
-- This provides zero-trust networking for local development; use proper certificates in production
-
-### Container Registry
-
-The Gitea container registry is configured automatically during deployment. The system pulls images from `ghcr.io/lpmi-13/k3s-remotelab-django` and caches them in the local Gitea registry.
-
-**Automated Workflow:**
-- On git push to main branch, Gitea Actions automatically:
-  1. Pulls the latest image from `ghcr.io/lpmi-13/k3s-remotelab-django`
-  2. Re-tags and pushes to Gitea registry
-  3. Runs security scans with Trivy
-
-**Manual Image Operations:**
 ```bash
-# Login to registry (one-time)
-echo 'remotelab' | docker login localhost -u remotelab --password-stdin
-
-# Pull from ghcr.io
-docker pull ghcr.io/lpmi-13/k3s-remotelab-django:latest
-
-# Tag for Gitea registry
-docker tag ghcr.io/lpmi-13/k3s-remotelab-django:latest localhost/remotelab/django-app:v2
-
-# Push to registry
-docker push localhost/remotelab/django-app:v2
-
-# Update deployment to use new tag
-kubectl set image deployment/django django=localhost/remotelab/django-app:v2 -n applications
+./scripts/cleanup-all.sh
 ```
 
-See `docs/CONTAINER_REGISTRY_SETUP.md` for detailed instructions.
+## Workflow
 
-### Verifying mTLS
-
-To verify that mTLS is enabled for all services:
+Once deployed, the scenario controller logs its activity:
 
 ```bash
-# Add Linkerd CLI to PATH
-export PATH=$PATH:~/.linkerd2/bin
+# Watch the controller in real-time
+kubectl logs -n applications deployment/scenario-controller -f
+```
 
-# Check which pods have Linkerd proxies (look for 2/2 containers - app + linkerd-proxy)
+You'll see:
+```
+waiting for ArgoCD application to be Healthy and Synced...
+application is Healthy and Synced
+waiting 2m30s before injecting next scenario...
+=== INJECTING SCENARIO: sops-decrypt-failure ===
+description: Removes the sops metadata block from the encrypted secrets file...
+scenario "sops-decrypt-failure" injected successfully, pushed to git
+waiting for user to fix the issue (app must return to Healthy + Synced)...
+```
+
+### Diagnosing Issues
+
+```bash
+# Check ArgoCD Application status
+kubectl get applications -n argocd django-app
+
+# See sync errors and conditions
+kubectl get applications -n argocd django-app -o jsonpath='{.status.conditions}' | jq .
+
+# Check ArgoCD repo-server logs (SOPS/render errors show here)
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server --tail=50
+
+# Check pod status
 kubectl get pods -n applications
-kubectl get pods -n monitoring
-kubectl get pods -n argocd
 
-# Install Linkerd viz extension for observability dashboard
-linkerd viz install | kubectl apply -f -
-linkerd viz check
-
-# Launch Linkerd dashboard to see live mTLS traffic
-linkerd viz dashboard
-
-# Check mTLS status for a specific deployment
-linkerd viz stat deployment/django -n applications
-
-# View live traffic between services
-linkerd viz tap deployment/django -n applications
+# Describe failing pods
+kubectl describe pod -n applications -l app=django
 ```
 
-All pods in the `applications`, `monitoring`, and `argocd` namespaces will have a Linkerd sidecar proxy automatically injected. This proxy handles:
-- **Automatic mTLS**: All TCP connections are transparently encrypted
-- **Traffic metrics**: Request rates, latencies, and success rates
-- **Load balancing**: Client-side load balancing with automatic retries
-- **Circuit breaking**: Automatic failure detection and recovery
+### Fixing Issues
 
-**Note:** Kubernetes Jobs (like `gitea-init-user`) are excluded from Linkerd injection using `linkerd.io/inject: disabled` annotation, as sidecars don't automatically terminate when Jobs complete. All long-running services have mTLS enabled.
+Most fixes involve editing the Helm chart in Gitea:
+
+```bash
+# Clone the repo locally (port-forward first)
+kubectl port-forward svc/gitea -n applications 3000:3000 &
+git clone http://remotelab:remotelab@localhost:3000/remotelab/django-app.git /tmp/fix
+cd /tmp/fix
+
+# Make your fix (e.g., restore values.yaml)
+vi chart/django-app/values.yaml
+
+# For SOPS-encrypted files, use sops to edit
+export SOPS_AGE_KEY_FILE=path/to/secrets/keys/local.key
+sops chart/django-app/secrets.yaml.enc
+
+# Push the fix
+git add -A && git commit -m "fix: restore broken config" && git push
+```
+
+ArgoCD will automatically detect the change and re-sync.
+
+For scenarios requiring resource deletion (stale Job, orphaned resources):
+- Use the ArgoCD UI to delete specific resources
+- Or use kubectl: `kubectl delete job <name> -n applications`
+
+### After a Fix
+
+The controller detects the app is healthy again and logs the explanation:
+
+```
+application is Healthy and Synced again!
+=== SCENARIO EXPLANATION: sops-decrypt-failure ===
+what happened: The sops metadata block was removed from secrets.yaml.enc...
+how to fix: Re-encrypt the file or restore the sops metadata block...
+diagnostic commands:
+  $ kubectl get applications -n argocd django-app -o jsonpath='{.status.conditions}'
+  $ kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server --tail=50
+```
+
+Then it waits another random interval before injecting the next failure.
 
 ## Directory Structure
 
 ```
-├── manifests/              # Kubernetes manifests
-│   ├── service-mesh/       # Linkerd control plane
-│   ├── infrastructure/     # Ingress and core services
-│   ├── monitoring/         # Prometheus + Grafana
-│   ├── gitops/            # ArgoCD configuration
-│   └── applications/       # Gitea + Django + dependencies
-├── argocd-apps/           # ArgoCD Application definitions
-│   ├── infrastructure/    # Infrastructure apps
-│   └── applications/      # Service apps
-├── config/                # Environment-specific configurations
-│   ├── values-single-node.yaml
-│   └── values-multi-node.yaml
-└── scripts/               # Deployment scripts
+├── argocd-apps/               # ArgoCD Application definition
+│   └── django-app.yaml        # Points at Gitea repo, uses helm-secrets
+├── manifests/
+│   ├── applications/          # Gitea, PostgreSQL, Redis, scenario controller
+│   ├── gitops/                # ArgoCD config, SOPS setup, ingress
+│   └── infrastructure/        # Traefik ingress rules
+├── sample-django-app/
+│   └── chart/django-app/      # Helm chart (pushed to Gitea at deploy)
+│       ├── templates/         # Deployment, Service, ConfigMap, Job
+│       ├── values.yaml        # App configuration
+│       └── .sops.yaml         # SOPS encryption rules
+├── scenario-controller/       # Go source for the failure injector
+│   ├── cmd/main.go            # Main loop
+│   ├── internal/argocd/       # K8s dynamic client for Application CR
+│   ├── internal/git/          # Git clone/modify/push via os/exec
+│   ├── internal/scenarios/    # 8 scenario implementations
+│   └── Dockerfile             # Multi-stage build
+├── scripts/
+│   ├── deploy-all.sh          # Full deployment script
+│   ├── cleanup-all.sh         # Teardown script
+│   └── lib/platform.sh        # Platform detection utilities
+└── secrets/keys/              # Generated age keys (gitignored)
 ```
 
-## Multi-Node Migration
+## Platform Support
 
-To migrate to a multi-node setup:
+| Platform | Kubernetes | Notes |
+|----------|-----------|-------|
+| macOS (Apple Silicon / Intel) | Colima + k3s | Primary dev platform |
+| Linux (Ubuntu/Debian) | Native k3s | Requires sudo for k3s install |
 
-1. **Install distributed storage** (Longhorn recommended):
-   ```bash
-   kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/master/deploy/longhorn.yaml
-   ```
+### macOS Setup
 
-2. **Update storage class** in manifests:
-   ```yaml
-   storageClassName: "longhorn"  # instead of "local-path"
-   ```
+```bash
+brew install colima kubectl age sops helm
+colima start --kubernetes --runtime containerd --cpu 4 --memory 6 --disk 60
+```
 
-3. **Increase replica counts** for high availability:
-   ```yaml
-   replicas: 3  # instead of 1
-   ```
+### Linux Setup
 
-4. **Add pod anti-affinity** rules for workload distribution
+```bash
+# Install k3s
+curl -sfL https://get.k3s.io | sh -
+
+# Install tools
+sudo apt install age
+# Install sops and helm manually (see their GitHub releases)
+```
 
 ## Configuration
 
-### Single-Node Configuration
+The scenario controller is configured via environment variables in `manifests/applications/scenario-controller.yaml`:
 
-Uses `config/values-single-node.yaml`:
-- Single replicas for all services
-- Local-path storage
-- Conservative resource limits
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MIN_DELAY_SECONDS` | 0 | Minimum wait (seconds) between healthy detection and injection |
+| `MAX_DELAY_SECONDS` | 0 | Maximum wait (seconds) before injection (0 = inject immediately) |
+| `ARGOCD_APP_NAME` | django-app | ArgoCD Application to monitor |
+| `GITEA_URL` | http://gitea... | Internal Gitea service URL |
 
-### Multi-Node Configuration
+## Troubleshooting the Lab Itself
 
-Uses `config/values-multi-node.yaml`:
-- Multiple replicas for HA
-- Distributed storage (Longhorn/NFS)
-- Higher resource limits
-- Pod anti-affinity rules
+### ArgoCD Can't Decrypt Secrets
 
-## Monitoring
-
-### Prometheus Targets
-
-- Kubernetes API server
-- Kubernetes nodes
-- All pods with `prometheus.io/scrape: "true"` annotation
-- Gitea metrics endpoint
-- Django metrics endpoint
-
-### Grafana Dashboards
-
-- Kubernetes cluster overview
-- Node resource utilization
-- Pod metrics
-- Application-specific dashboards
-
-## Security Features
-
-### Current Security Posture
-
-✅ **Implemented:**
-- **mTLS for all service-to-service communication** via Linkerd service mesh
-- **HTTPS for all external access** with automatic HTTP redirect
-- **Zero-trust networking** - all pod-to-pod traffic is encrypted by default
-- **Service authentication** via mutual TLS certificates managed by Linkerd
-
-⚠️ **Development Defaults (change in production!):**
-- Default passwords (remotelab/remotelab for Gitea, admin/admin for Grafana)
-- Self-signed certificates for external TLS
-- Minimal RBAC configurations
-- No authentication on some internal services
-
-## Working with Gitea - Development Workflow
-
-This section covers the complete workflow for cloning, editing, and deploying code changes through the GitOps pipeline.
-
-### Initial Setup: Configure Git for Self-Signed Certificates
-
-The system uses HTTPS with self-signed certificates. You must configure git to trust localhost before cloning repositories.
-
-**One-time setup (required before first clone):**
+Check repo-server logs:
 ```bash
-# Configure git to skip SSL verification for localhost only
-git config --global http.https://localhost/.sslVerify false
+kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server --tail=50
 ```
 
-This is safe for local development since localhost is your own machine. In production environments, you would use proper CA-signed certificates instead.
+Common issues:
+- `sops: not found` → SOPS binary not in PATH on repo-server
+- `could not decrypt` → Age key mismatch between what encrypted and what's mounted
 
-**Alternative: Trust the certificate system-wide (macOS)**
-If you prefer to trust the certificate rather than disable verification:
-```bash
-# Get the certificate from Traefik
-kubectl get secret remotelab-tls -n applications -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/remotelab.crt
-
-# Add to macOS keychain (requires password)
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/remotelab.crt
-```
-
-### Complete Development Workflow
-
-#### 1. Clone a Repository
+### Scenario Controller Not Injecting
 
 ```bash
-# Clone the Django application repository
-git clone https://localhost/gitea/remotelab/django-app.git
-cd django-app
-
-# Verify you can see the code
-ls -la
+kubectl logs -n applications deployment/scenario-controller
 ```
 
-#### 2. Make Changes
-
-Edit any files in your local clone:
-```bash
-# Example: Edit the Django app
-vim myapp/views.py
-
-# Or edit workflow files
-vim .gitea/workflows/build.yaml
-```
-
-#### 3. Commit Your Changes
-
-```bash
-# Check what changed
-git status
-git diff
-
-# Stage and commit
-git add .
-git commit -m "Add new feature: user profile endpoint"
-```
-
-#### 4. Push to Trigger CI/CD Pipeline
-
-```bash
-# Push to main branch to trigger deployment
-git push origin main
-```
-
-#### 5. Monitor the Deployment
-
-After pushing, multiple automated processes start. Here's how to monitor each:
-
-**Monitor Gitea Actions (CI/CD Pipeline):**
-```bash
-# Watch workflow in browser
-open https://localhost/gitea/remotelab/django-app/actions
-
-# Or check runner status via kubectl
-kubectl get pods -n applications -l app=act-runner
-kubectl logs -n applications -l app=act-runner -f
-```
-
-**What Gitea Actions does:**
-- Pulls latest image from `ghcr.io/lpmi-13/k3s-remotelab-django`
-- Re-tags and pushes to local Gitea registry
-- Runs Trivy security scanning
-- Updates image version in deployment manifests (if configured)
-
-**Monitor ArgoCD Sync:**
-```bash
-# Watch ArgoCD in browser
-open https://localhost/argocd
-
-# Or use kubectl
-kubectl get applications -n argocd
-kubectl describe application django-app -n argocd
-```
-
-ArgoCD continuously monitors the Git repository and automatically syncs changes to the cluster (if auto-sync is enabled).
-
-**Monitor Kubernetes Deployment:**
-```bash
-# Watch pod status (press Ctrl+C to exit)
-kubectl get pods -n applications -l app=django -w
-
-# Check detailed pod information
-kubectl describe pod -n applications -l app=django
-
-# Watch pod logs in real-time
-kubectl logs -n applications -l app=django -f
-
-# Check if new pods are running the updated image
-kubectl get pods -n applications -l app=django -o jsonpath='{.items[*].spec.containers[*].image}'
-```
-
-**Monitor Application Health:**
-```bash
-# Check the application health endpoint
-curl -k https://localhost/django/api/health/
-
-# View system information
-curl -k https://localhost/django/api/system/
-```
-
-#### 6. Verify Deployment Success
-
-Check that your changes are live:
-```bash
-# Verify pods are running and ready
-kubectl get pods -n applications -l app=django
-
-# Expected output: Shows 2/2 READY (app + linkerd-proxy)
-# NAME                      READY   STATUS    RESTARTS   AGE
-# django-xxxxxxxxxx-xxxxx   2/2     Running   0          2m
-
-# Check pod events for any issues
-kubectl get events -n applications --field-selector involvedObject.name=django-xxxxxxxxxx-xxxxx
-
-# Test the application
-curl -k https://localhost/django/api/health/
-```
-
-### Troubleshooting
-
-**Issue: SSL Certificate Error**
-```
-fatal: unable to access 'https://localhost/gitea/...': SSL certificate problem
-```
-**Solution:** Run the git config command to disable SSL verification for localhost:
-```bash
-git config --global http.https://localhost/.sslVerify false
-```
-
-**Issue: Authentication Failed**
-```
-fatal: Authentication failed for 'https://localhost/gitea/...'
-```
-**Solution:** Use the correct credentials (username: `remotelab`, password: `remotelab`):
-```bash
-# Git will prompt for credentials on first push/pull
-# Or configure credential helper:
-git config --global credential.helper store
-```
-
-**Issue: Gitea Actions Not Running**
-```bash
-# Check if runner pod is healthy
-kubectl get pods -n applications -l app=act-runner
-
-# View runner logs
-kubectl logs -n applications -l app=act-runner --tail=50
-
-# Check workflow file syntax
-cat .gitea/workflows/build.yaml
-
-# Verify runner registration in Gitea UI
-open https://localhost/gitea/admin/runners
-```
-
-**Issue: ArgoCD Not Syncing**
-```bash
-# Check ArgoCD application status
-kubectl get application -n argocd django-app -o yaml
-
-# Manual sync via CLI (requires argocd CLI)
-argocd app sync django-app
-
-# Or sync via UI
-open https://localhost/argocd
-```
-
-**Issue: Deployment Not Updating**
-```bash
-# Check if image was pushed to registry
-kubectl get pods -n applications -l app=django -o jsonpath='{.items[*].spec.containers[*].image}'
-
-# Manually trigger rollout restart
-kubectl rollout restart deployment/django -n applications
-
-# Watch rollout status
-kubectl rollout status deployment/django -n applications
-```
-
-### Repository Structure
-
-The Django app repository in Gitea contains:
-```
-django-app/
-├── .gitea/
-│   └── workflows/
-│       └── build.yaml          # Gitea Actions CI/CD pipeline
-├── myapp/                       # Django application code
-│   ├── views.py
-│   ├── models.py
-│   └── ...
-├── requirements.txt             # Python dependencies
-├── Dockerfile                   # Container image definition
-└── README.md
-```
-
-### Best Practices
-
-1. **Always test locally first** before pushing to trigger CI/CD
-2. **Use meaningful commit messages** to track changes in ArgoCD UI
-3. **Monitor the pipeline** after pushing to catch issues early
-4. **Check pod logs** if deployment fails or behaves unexpectedly
-5. **Use feature branches** for experimental changes (push to non-main branches won't trigger deployment)
-
-### Advanced: Manual Image Management
-
-If you need to work with container images directly:
-
-```bash
-# Login to Gitea container registry
-echo 'remotelab' | docker login localhost -u remotelab --password-stdin
-
-# Pull from GitHub Container Registry
-docker pull ghcr.io/lpmi-13/k3s-remotelab-django:latest
-
-# Tag for Gitea registry
-docker tag ghcr.io/lpmi-13/k3s-remotelab-django:latest localhost/remotelab/django-app:v2
-
-# Push to Gitea registry
-docker push localhost/remotelab/django-app:v2
-
-# Update deployment to use new tag
-kubectl set image deployment/django django=localhost/remotelab/django-app:v2 -n applications
-
-# Or edit the manifest in Git and let ArgoCD sync it
-```
-
-## Development
-
-### Django Application
-
-The Django app includes:
-- REST API with health checks
-- Redis integration for caching
-- Prometheus metrics export
-- Basic system information endpoint
-
-### Adding New Services
-
-1. Create manifests in appropriate directory
-2. Add ingress rules if needed
-3. Create ArgoCD Application definition
-4. Update monitoring configuration
-
-## Troubleshooting
-
-### Deployment Issues
-
-If something goes wrong during deployment, simply re-run the script:
-```bash
-./scripts/deploy-all.sh
-```
-
-The script will automatically clean up and redeploy everything. To keep existing resources and just update:
-```bash
-./scripts/deploy-all.sh --skip-cleanup
-```
-
-### Service Not Starting
-```bash
-kubectl describe pod <pod-name> -n <namespace>
-kubectl logs <pod-name> -n <namespace>
-```
-
-### Storage Issues
-```bash
-kubectl get pv,pvc -A
-kubectl describe pvc <pvc-name> -n <namespace>
-```
-
-### Network Issues
-```bash
-kubectl get ingress -A
-kubectl describe ingress <ingress-name> -n <namespace>
-```
-
-### ArgoCD Issues
-```bash
-kubectl get applications -n argocd
-kubectl describe application <app-name> -n argocd
-```
+Common issues:
+- Application stuck as "Unknown" sync status (repo-server can't render)
+- Controller waiting for Healthy+Synced but app never recovers
 
 ### Complete Reset
 
-To completely reset the cluster:
 ```bash
-# Uninstall K3s
-sudo /usr/local/bin/k3s-uninstall.sh
-
-# Reinstall and redeploy
-./scripts/install-k3s.sh
+./scripts/cleanup-all.sh -y
 ./scripts/deploy-all.sh
 ```
 
-## Contributing
-
-1. Follow the existing patterns for new services
-2. Ensure multi-node compatibility
-3. Add monitoring for new services
-4. Update documentation
-
 ## License
 
-MIT License - see LICENSE file for details
+MIT

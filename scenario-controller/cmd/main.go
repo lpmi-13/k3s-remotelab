@@ -1,0 +1,231 @@
+package main
+
+import (
+	"context"
+	"log"
+	"math/rand"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/argocd"
+	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
+	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/scenarios"
+)
+
+func main() {
+	log.SetFlags(log.Ldate | log.Ltime | log.LUTC)
+	log.Println("scenario-controller starting up")
+
+	// Load configuration from environment variables.
+	argocdServer := requireEnv("ARGOCD_SERVER")
+	argocdAppName := requireEnv("ARGOCD_APP_NAME")
+	giteaURL := requireEnv("GITEA_URL")
+	giteaUsername := requireEnv("GITEA_USERNAME")
+	giteaPassword := requireEnv("GITEA_PASSWORD")
+	giteaRepo := requireEnv("GITEA_REPO")
+	sopsAgeKey := requireEnv("SOPS_AGE_KEY")
+	agePublicKey := requireEnv("AGE_PUBLIC_KEY")
+
+	minDelay := envInt("MIN_DELAY_SECONDS", 0)
+	maxDelay := envInt("MAX_DELAY_SECONDS", 0)
+
+	log.Printf("config: argocd_server=%s app=%s gitea=%s repo=%s min_delay=%ds max_delay=%ds",
+		argocdServer, argocdAppName, giteaURL, giteaRepo, minDelay, maxDelay)
+
+	// Set up context with signal handling for graceful shutdown.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		sig := <-sigCh
+		log.Printf("received signal %v, shutting down", sig)
+		cancel()
+	}()
+
+	// Initialise clients.
+	argoClient, err := argocd.NewClient(argocdServer, argocdAppName)
+	if err != nil {
+		log.Fatalf("failed to create argocd client: %v", err)
+	}
+
+	gitClient := git.NewClient(giteaURL, giteaUsername, giteaPassword, giteaRepo, sopsAgeKey, agePublicKey)
+
+	// Register all scenarios.
+	registry := scenarios.NewRegistry()
+	registry.Register(&scenarios.MissingConfigMap{})
+	registry.Register(&scenarios.SopsDecryptFailure{})
+	registry.Register(&scenarios.HMACMismatch{})
+	registry.Register(&scenarios.WrongTypeSops{})
+	registry.Register(&scenarios.StuckSync{})
+	registry.Register(&scenarios.StaleJob{})
+	registry.Register(&scenarios.OrphanedResource{})
+	registry.Register(&scenarios.PVCIncompatible{})
+
+	log.Printf("registered %d scenarios: %v", registry.Count(), registry.Names())
+
+	// Main control loop.
+	if err := runLoop(ctx, argoClient, gitClient, registry, minDelay, maxDelay); err != nil {
+		if ctx.Err() != nil {
+			log.Println("controller shut down gracefully")
+			return
+		}
+		log.Fatalf("controller loop failed: %v", err)
+	}
+}
+
+// runLoop is the main control loop that waits for healthy state, injects a
+// failure scenario, waits for the user to fix it, then repeats.
+func runLoop(
+	ctx context.Context,
+	argoClient *argocd.Client,
+	gitClient *git.Client,
+	registry *scenarios.Registry,
+	minDelay, maxDelay int,
+) error {
+	for {
+		// Step 1: Wait for ArgoCD app to be healthy and synced.
+		log.Println("waiting for ArgoCD application to be Healthy and Synced...")
+		if err := waitForHealthy(ctx, argoClient); err != nil {
+			return err
+		}
+		log.Println("application is Healthy and Synced")
+
+		// Step 2: Wait before injecting a failure (skip if delay is 0).
+		delay := randomDuration(minDelay, maxDelay)
+		if delay > 0 {
+			log.Printf("waiting %v before injecting next scenario...", delay)
+			if err := sleepCtx(ctx, delay); err != nil {
+				return err
+			}
+		}
+
+		// Step 3: Pick a random scenario and inject the failure.
+		scenario := registry.Random()
+		log.Printf("=== INJECTING SCENARIO: %s ===", scenario.Name())
+		log.Printf("description: %s", scenario.Description())
+
+		if err := scenario.Inject(gitClient); err != nil {
+			log.Printf("ERROR: failed to inject scenario %q: %v", scenario.Name(), err)
+			log.Println("will retry with a different scenario on next iteration")
+			continue
+		}
+		log.Printf("scenario %q injected successfully, pushed to git", scenario.Name())
+
+		// Step 4: Wait for ArgoCD to detect the problem (become unhealthy/degraded).
+		log.Println("waiting for ArgoCD to become unhealthy or degraded...")
+		if err := waitForUnhealthy(ctx, argoClient); err != nil {
+			return err
+		}
+		log.Println("application is now unhealthy/degraded - scenario injection confirmed")
+		log.Println("helpful diagnostic commands:")
+		for _, cmd := range scenario.DiagnoseCommands() {
+			log.Printf("  $ %s", cmd)
+		}
+
+		// Step 5: Wait for the user to fix it (app becomes healthy again).
+		log.Println("waiting for user to fix the issue (app must return to Healthy + Synced)...")
+		if err := waitForHealthy(ctx, argoClient); err != nil {
+			return err
+		}
+
+		// Step 6: Log the explanation and revert any leftover state.
+		log.Printf("=== SCENARIO RESOLVED: %s ===", scenario.Name())
+		log.Printf("explanation: %s", scenario.Explanation())
+
+		if err := scenario.Revert(gitClient); err != nil {
+			log.Printf("WARNING: failed to revert scenario %q: %v (may self-heal)", scenario.Name(), err)
+		}
+
+		log.Println("--- cycle complete, starting next round ---")
+	}
+}
+
+// waitForHealthy polls the ArgoCD application status until it is both Healthy
+// and Synced, or until the context is cancelled.
+func waitForHealthy(ctx context.Context, client *argocd.Client) error {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		health, sync, err := client.GetAppStatus(ctx)
+		if err != nil {
+			log.Printf("warning: failed to get app status: %v", err)
+		} else if health == "Healthy" && sync == "Synced" {
+			return nil
+		} else {
+			log.Printf("  app status: health=%s sync=%s", health, sync)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// waitForUnhealthy polls the ArgoCD application status until it is NOT in a
+// Healthy+Synced state, indicating the injected failure has been detected.
+func waitForUnhealthy(ctx context.Context, client *argocd.Client) error {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+	for {
+		health, sync, err := client.GetAppStatus(ctx)
+		if err != nil {
+			log.Printf("warning: failed to get app status: %v", err)
+		} else if health != "Healthy" || sync != "Synced" {
+			log.Printf("  app status changed: health=%s sync=%s", health, sync)
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+// sleepCtx sleeps for the given duration, or returns early if ctx is cancelled.
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// randomDuration returns a random duration between min and max seconds.
+func randomDuration(minSec, maxSec int) time.Duration {
+	n := minSec + rand.Intn(maxSec-minSec+1)
+	return time.Duration(n) * time.Second
+}
+
+// requireEnv reads a required environment variable or exits.
+func requireEnv(key string) string {
+	val := os.Getenv(key)
+	if val == "" {
+		log.Fatalf("required environment variable %s is not set", key)
+	}
+	return val
+}
+
+// envInt reads an integer environment variable with a default fallback.
+func envInt(key string, defaultVal int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultVal
+	}
+	n, err := strconv.Atoi(val)
+	if err != nil {
+		log.Printf("warning: invalid integer for %s=%q, using default %d", key, val, defaultVal)
+		return defaultVal
+	}
+	return n
+}
+

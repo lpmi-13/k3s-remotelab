@@ -1,0 +1,13 @@
+{{- if .Values.appConfig.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "django-app.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "django-app.labels" . | nindent 4 }}
+data:
+  {{- range $key, $value := .Values.appConfig.data }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+{{- end }}

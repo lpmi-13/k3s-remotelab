@@ -1,11 +1,10 @@
 image:
-  registry: localhost:30300  # Gitea registry via NodePort (accessible from k3s node)
-  repository: remotelab/django-app
+  registry: ghcr.io
+  repository: lpmi-13/k3s-remotelab-django
   tag: latest
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
-imagePullSecrets:
-  - name: gitea-registry-secret
+imagePullSecrets: []
 
 service:
   type: ClusterIP
@@ -20,58 +19,47 @@ resources:
     memory: 256Mi
 
 env:
-  REDIS_URL: "redis://redis:6379/1"
   DEBUG: "false"
   SECRET_KEY: "django-insecure-remotelab-key-change-in-production"
   FORCE_SCRIPT_NAME: "/django"
-  # Database configuration
   DATABASE_ENGINE: "postgresql"
   DB_HOST: "postgresql"
   DB_PORT: "5432"
   DB_NAME: "remotelab"
   DB_USER: "remotelab"
   DB_PASSWORD: "remotelab"
-  # Celery configuration
+  REDIS_URL: "redis://redis:6379/1"
   CELERY_BROKER_URL: "redis://redis:6379/0"
   CELERY_RESULT_BACKEND: "redis://redis:6379/0"
-  # OpenTelemetry tracing
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo.monitoring.svc.cluster.local:4317"
-  OTEL_SERVICE_NAME: "django-app"
+
+# SOPS-encrypted secrets (overrides env values above when decrypted)
+# These values are managed via sops and decrypted by ArgoCD's helm-secrets plugin
+secrets: {}
 
 persistence:
-  enabled: true
-  size: 2Gi
-  storageClass: local-path
+  enabled: false
 
 healthCheck:
   path: /api/health/
-  readinessInitialDelay: 30
-  livenessInitialDelay: 60
+  readinessInitialDelay: 15
+  livenessInitialDelay: 30
 
 metrics:
   enabled: true
   port: "8000"
   path: "/metrics"
 
-# Celery worker configuration
 celery:
-  enabled: true
-  replicas: 1
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 256Mi
+  enabled: false
 
-# Celery beat scheduler (single replica only)
 celeryBeat:
+  enabled: false
+
+# ConfigMap that the app expects to exist
+appConfig:
   enabled: true
-  resources:
-    limits:
-      cpu: 200m
-      memory: 256Mi
-    requests:
-      cpu: 50m
-      memory: 128Mi
+  data:
+    APP_ENVIRONMENT: "production"
+    FEATURE_FLAGS: "inventory_v2=true,async_reports=true"
+    MAX_CONNECTIONS: "100"
+    LOG_LEVEL: "INFO"
