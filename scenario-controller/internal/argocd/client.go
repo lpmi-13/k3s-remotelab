@@ -54,29 +54,35 @@ func NewClient(argocdServer, appName string) (*Client, error) {
 	}, nil
 }
 
-// GetAppStatus returns the health status and sync status of the ArgoCD
-// Application. It reads .status.health.status and .status.sync.status from
-// the Application CR.
+// GetAppStatus returns the health, sync, and operation phase of the ArgoCD
+// Application. It reads .status.health.status, .status.sync.status, and
+// .status.operationState.phase from the Application CR.
 //
 // Typical health values: "Healthy", "Degraded", "Progressing", "Missing", "Unknown"
 // Typical sync values:   "Synced", "OutOfSync", "Unknown"
-func (c *Client) GetAppStatus(ctx context.Context) (health string, sync string, err error) {
+// Typical operation phases: "Running", "Succeeded", "Failed", "Error", "Unknown"
+func (c *Client) GetAppStatus(ctx context.Context) (health string, sync string, operationPhase string, err error) {
 	app, err := c.dynClient.Resource(applicationGVR).Namespace(c.namespace).Get(ctx, c.appName, metav1.GetOptions{})
 	if err != nil {
-		return "", "", fmt.Errorf("failed to get application %q: %w", c.appName, err)
+		return "", "", "", fmt.Errorf("failed to get application %q: %w", c.appName, err)
 	}
 
 	health, err = extractNestedString(app, "status", "health", "status")
 	if err != nil {
-		return "", "", fmt.Errorf("failed to read health status: %w", err)
+		return "", "", "", fmt.Errorf("failed to read health status: %w", err)
 	}
 
 	sync, err = extractNestedString(app, "status", "sync", "status")
 	if err != nil {
-		return "", "", fmt.Errorf("failed to read sync status: %w", err)
+		return "", "", "", fmt.Errorf("failed to read sync status: %w", err)
 	}
 
-	return health, sync, nil
+	operationPhase, err = extractNestedString(app, "status", "operationState", "phase")
+	if err != nil {
+		return "", "", "", fmt.Errorf("failed to read operation phase: %w", err)
+	}
+
+	return health, sync, operationPhase, nil
 }
 
 // RequestHardRefresh asks ArgoCD to immediately refresh the Application and

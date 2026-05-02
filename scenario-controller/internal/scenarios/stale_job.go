@@ -40,7 +40,24 @@ func (s *StaleJob) Inject(gitClient *git.Client) error {
 				return fmt.Errorf("could not find insertion point in migrate-job.yaml")
 			}
 
-			return w.WriteFile(MigrateJobFile, []byte(modified))
+			if err := w.WriteFile(MigrateJobFile, []byte(modified)); err != nil {
+				return err
+			}
+
+			deployData, err := w.ReadFile(DeploymentFile)
+			if err != nil {
+				return fmt.Errorf("failed to read %s: %w", DeploymentFile, err)
+			}
+
+			deployContent := string(deployData)
+			deployMarker := "      annotations:\n        prometheus.io/scrape: \"true\""
+			deployInjection := "      annotations:\n        remotelab.io/stale-job-trigger: \"enabled\"\n        prometheus.io/scrape: \"true\""
+			deployModified := strings.Replace(deployContent, deployMarker, deployInjection, 1)
+			if deployModified == deployContent {
+				return fmt.Errorf("could not add sync trigger annotation in deployment.yaml")
+			}
+
+			return w.WriteFile(DeploymentFile, []byte(deployModified))
 		},
 	)
 }
@@ -60,7 +77,20 @@ func (s *StaleJob) Revert(gitClient *git.Client) error {
 			marker := "          set -e\n          echo \"Running Django migrations...\""
 
 			modified := strings.Replace(content, injection, marker, 1)
-			return w.WriteFile(MigrateJobFile, []byte(modified))
+			if err := w.WriteFile(MigrateJobFile, []byte(modified)); err != nil {
+				return err
+			}
+
+			deployData, err := w.ReadFile(DeploymentFile)
+			if err != nil {
+				return fmt.Errorf("failed to read %s: %w", DeploymentFile, err)
+			}
+
+			deployContent := string(deployData)
+			deployInjection := "      annotations:\n        remotelab.io/stale-job-trigger: \"enabled\"\n        prometheus.io/scrape: \"true\""
+			deployMarker := "      annotations:\n        prometheus.io/scrape: \"true\""
+			deployModified := strings.Replace(deployContent, deployInjection, deployMarker, 1)
+			return w.WriteFile(DeploymentFile, []byte(deployModified))
 		},
 	)
 }
@@ -68,13 +98,16 @@ func (s *StaleJob) Revert(gitClient *git.Client) error {
 func (s *StaleJob) Explanation() string {
 	return "The PreSync migration Job was changed to fail before running Django migrations. " +
 		"ArgoCD waits for hook Jobs to complete before applying the rest of the sync, so the " +
-		"application stays stuck in a failed/progressing sync state. The fix is to remove the " +
-		"failing command from the migration Job template and sync again."
+		"application stays stuck in a failed/progressing sync state. A Deployment annotation " +
+		"was also changed to create a normal resource diff, which forces ArgoCD to run the " +
+		"PreSync hook. The fix is to remove the failing command from the migration Job template " +
+		"and sync again."
 }
 
 func (s *StaleJob) DiagnoseCommands() []string {
 	return []string{
 		"kubectl get jobs -n applications",
+		"kubectl logs -n applications -l job-name=django-migrate-latest --tail=50",
 		"kubectl get applications -n argocd django-app -o jsonpath='{.status.operationState.message}'",
 		"kubectl get applications -n argocd django-app -o jsonpath='{.status.conditions}'",
 		"kubectl describe job -n applications -l app.kubernetes.io/component=migration",

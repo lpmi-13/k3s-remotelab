@@ -7,9 +7,9 @@ import (
 	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
 )
 
-// MissingConfigMap prevents the ConfigMap template from rendering while the
-// Deployment still references it via envFrom. This causes pods to fail to start
-// because the ConfigMap they depend on does not exist.
+// MissingConfigMap changes the Deployment's envFrom reference to a ConfigMap
+// that does not exist. This causes pods to fail to start because the required
+// ConfigMap cannot be mounted into the environment.
 type MissingConfigMap struct{}
 
 func (s *MissingConfigMap) Name() string {
@@ -17,31 +17,31 @@ func (s *MissingConfigMap) Name() string {
 }
 
 func (s *MissingConfigMap) Description() string {
-	return "Prevents the application ConfigMap from rendering while the Deployment still " +
-		"references it via envFrom, causing pod startup failure."
+	return "Changes the Deployment to reference a non-existent ConfigMap via envFrom, " +
+		"causing pod startup failure."
 }
 
 func (s *MissingConfigMap) Inject(gitClient *git.Client) error {
 	return gitClient.CloneAndModify(
 		"chore: update application configuration",
 		func(w *git.WorkDir) error {
-			data, err := w.ReadFile(ConfigMapFile)
+			data, err := w.ReadFile(DeploymentFile)
 			if err != nil {
-				return fmt.Errorf("failed to read %s: %w", ConfigMapFile, err)
+				return fmt.Errorf("failed to read %s: %w", DeploymentFile, err)
 			}
 
 			content := string(data)
 			modified := strings.Replace(content,
-				"{{- if .Values.appConfig.enabled }}",
-				"{{- if false }}",
+				"name: {{ include \"django-app.fullname\" . }}-config",
+				"name: django-app-missing-config",
 				1,
 			)
 
 			if modified == content {
-				return fmt.Errorf("failed to disable ConfigMap template in %s", ConfigMapFile)
+				return fmt.Errorf("failed to change ConfigMap reference in %s", DeploymentFile)
 			}
 
-			return w.WriteFile(ConfigMapFile, []byte(modified))
+			return w.WriteFile(DeploymentFile, []byte(modified))
 		},
 	)
 }
@@ -50,28 +50,28 @@ func (s *MissingConfigMap) Revert(gitClient *git.Client) error {
 	return gitClient.CloneAndModify(
 		"chore: restore application configuration",
 		func(w *git.WorkDir) error {
-			data, err := w.ReadFile(ConfigMapFile)
+			data, err := w.ReadFile(DeploymentFile)
 			if err != nil {
-				return fmt.Errorf("failed to read %s: %w", ConfigMapFile, err)
+				return fmt.Errorf("failed to read %s: %w", DeploymentFile, err)
 			}
 
 			content := string(data)
 			modified := strings.Replace(content,
-				"{{- if false }}",
-				"{{- if .Values.appConfig.enabled }}",
+				"name: django-app-missing-config",
+				"name: {{ include \"django-app.fullname\" . }}-config",
 				1,
 			)
 
-			return w.WriteFile(ConfigMapFile, []byte(modified))
+			return w.WriteFile(DeploymentFile, []byte(modified))
 		},
 	)
 }
 
 func (s *MissingConfigMap) Explanation() string {
-	return "The ConfigMap template condition was changed so the ConfigMap no longer rendered, " +
-		"while appConfig.enabled remained true. The Deployment still references the missing " +
-		"ConfigMap via envFrom, so Kubernetes cannot start the pods. The fix is to restore the " +
-		"ConfigMap template condition or remove the Deployment's envFrom dependency."
+	return "The Deployment's envFrom reference was changed to point at a ConfigMap that " +
+		"does not exist. Kubernetes cannot start the pods while a required ConfigMap " +
+		"reference is missing. The fix is to restore the ConfigMap reference or create " +
+		"the expected ConfigMap."
 }
 
 func (s *MissingConfigMap) DiagnoseCommands() []string {

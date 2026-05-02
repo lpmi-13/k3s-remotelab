@@ -7,9 +7,9 @@ import (
 	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
 )
 
-// SopsDecryptFailure corrupts the SOPS file structure by removing the sops
-// metadata block from secrets.yaml.enc. Without the sops metadata, helm-secrets
-// cannot decrypt the file, causing the ArgoCD sync to fail.
+// SopsDecryptFailure corrupts the age-encrypted SOPS data key. SOPS can still
+// identify the file as encrypted, but it cannot recover the data key, causing
+// ArgoCD manifest generation to fail.
 type SopsDecryptFailure struct{}
 
 func (s *SopsDecryptFailure) Name() string {
@@ -17,8 +17,8 @@ func (s *SopsDecryptFailure) Name() string {
 }
 
 func (s *SopsDecryptFailure) Description() string {
-	return "Removes the sops metadata block from the encrypted secrets file, " +
-		"making it impossible for helm-secrets to decrypt it during ArgoCD sync."
+	return "Corrupts the age-encrypted SOPS data key, making it impossible for " +
+		"helm-secrets to decrypt the file during ArgoCD sync."
 }
 
 func (s *SopsDecryptFailure) Inject(gitClient *git.Client) error {
@@ -32,47 +32,49 @@ func (s *SopsDecryptFailure) Inject(gitClient *git.Client) error {
 
 			content := string(data)
 
-			// Find and remove the sops: metadata block at the end of the file.
-			// The sops block starts with "sops:" at the beginning of a line and
-			// extends to the end of the file.
-			sopsIdx := strings.Index(content, "\nsops:\n")
-			if sopsIdx == -1 {
-				// Try without leading newline (might be at very start, unlikely).
-				if strings.HasPrefix(content, "sops:\n") {
-					sopsIdx = 0
-				} else {
-					return fmt.Errorf("sops metadata block not found in %s", SecretsFile)
-				}
+			marker := "-----BEGIN AGE ENCRYPTED FILE-----\n"
+			markerIdx := strings.Index(content, marker)
+			if markerIdx == -1 {
+				return fmt.Errorf("age encrypted data key block not found in %s", SecretsFile)
 			}
 
-			// Remove the sops metadata block.
-			truncated := content[:sopsIdx+1] // keep the trailing newline before sops:
-			return w.WriteFile(SecretsFile, []byte(truncated))
+			dataStart := markerIdx + len(marker)
+			for dataStart < len(content) && (content[dataStart] == ' ' || content[dataStart] == '\t') {
+				dataStart++
+			}
+			if dataStart >= len(content) || content[dataStart] == '\n' {
+				return fmt.Errorf("age encrypted data key block is malformed in %s", SecretsFile)
+			}
+
+			replacement := byte('X')
+			if content[dataStart] == replacement {
+				replacement = 'Y'
+			}
+
+			modified := content[:dataStart] + string(replacement) + content[dataStart+1:]
+			return w.WriteFile(SecretsFile, []byte(modified))
 		},
 	)
 }
 
 func (s *SopsDecryptFailure) Revert(gitClient *git.Client) error {
-	// The user must re-encrypt the secrets file with sops to fix this.
-	// The revert simply restores the file from git history.
+	// The user must restore or re-encrypt the SOPS file to fix this. Once the
+	// application is healthy again, there is nothing else for the controller to
+	// undo.
 	return gitClient.CloneAndModify(
 		"chore: restore encrypted secrets",
 		func(w *git.WorkDir) error {
-			// Restore the file from the previous commit using git.
-			// Since we cloned fresh, the file should already be in the correct state
-			// if the user fixed it. If not, we cannot easily reconstruct the sops
-			// metadata, so we just log a warning.
 			return nil
 		},
 	)
 }
 
 func (s *SopsDecryptFailure) Explanation() string {
-	return "The sops metadata block was removed from secrets.yaml.enc. SOPS requires this " +
-		"metadata (which contains the encrypted data key, MAC, and recipient information) to " +
-		"decrypt the file. Without it, helm-secrets fails during the ArgoCD sync. The fix is " +
-		"to restore the sops metadata block or re-encrypt the file using: " +
-		"sops --encrypt --age <public-key> secrets.yaml > secrets.yaml.enc"
+	return "The age-encrypted SOPS data key in secrets.yaml.enc was corrupted. SOPS can " +
+		"still identify the file as encrypted, but it cannot decrypt the data key needed " +
+		"to read the secret values, so helm-secrets fails during ArgoCD manifest " +
+		"generation. The fix is to restore the encrypted file from git history or " +
+		"re-encrypt it with: sops --encrypt --age <public-key> secrets.yaml > secrets.yaml.enc"
 }
 
 func (s *SopsDecryptFailure) DiagnoseCommands() []string {

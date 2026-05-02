@@ -150,19 +150,19 @@ func runLoop(
 	}
 }
 
-// waitForHealthy polls the ArgoCD application status until it is both Healthy
-// and Synced, or until the context is cancelled.
+// waitForHealthy polls the ArgoCD application status until it is Healthy,
+// Synced, and not carrying a running or failed operation.
 func waitForHealthy(ctx context.Context, client *argocd.Client) error {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
-		health, sync, err := client.GetAppStatus(ctx)
+		health, sync, operationPhase, err := client.GetAppStatus(ctx)
 		if err != nil {
 			log.Printf("warning: failed to get app status: %v", err)
-		} else if health == "Healthy" && sync == "Synced" {
+		} else if health == "Healthy" && sync == "Synced" && operationPhaseIsSettled(operationPhase) {
 			return nil
 		} else {
-			log.Printf("  app status: health=%s sync=%s", health, sync)
+			log.Printf("  app status: health=%s sync=%s operation=%s", health, sync, operationPhase)
 		}
 
 		select {
@@ -179,11 +179,11 @@ func waitForUnhealthy(ctx context.Context, client *argocd.Client) error {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	for {
-		health, sync, err := client.GetAppStatus(ctx)
+		health, sync, operationPhase, err := client.GetAppStatus(ctx)
 		if err != nil {
 			log.Printf("warning: failed to get app status: %v", err)
-		} else if health != "Healthy" || sync != "Synced" {
-			log.Printf("  app status changed: health=%s sync=%s", health, sync)
+		} else if health != "Healthy" || sync != "Synced" || !operationPhaseIsSettled(operationPhase) {
+			log.Printf("  app status changed: health=%s sync=%s operation=%s", health, sync, operationPhase)
 			return nil
 		}
 
@@ -193,6 +193,10 @@ func waitForUnhealthy(ctx context.Context, client *argocd.Client) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func operationPhaseIsSettled(phase string) bool {
+	return phase == "Succeeded" || phase == "Unknown"
 }
 
 // sleepCtx sleeps for the given duration, or returns early if ctx is cancelled.

@@ -16,14 +16,13 @@ A hands-on ArgoCD troubleshooting environment that randomly injects realistic Gi
 
 | Scenario | What Breaks | How to Fix |
 |----------|-------------|------------|
-| **Missing ConfigMap** | `appConfig.enabled` set to false, ConfigMap disappears but Deployment still references it | Re-enable the ConfigMap in values.yaml |
-| **SOPS Decrypt Failure** | SOPS metadata block removed from encrypted secrets file | Restore the sops metadata or re-encrypt the file |
+| **Missing ConfigMap** | Deployment references a non-existent ConfigMap | Restore the ConfigMap reference |
+| **SOPS Decrypt Failure** | SOPS age data-key block corrupted in encrypted secrets file | Restore the encrypted file or re-encrypt it |
 | **HMAC Mismatch** | Ciphertext tampered without updating MAC | Re-encrypt the secrets file with valid data |
-| **Wrong Type in SOPS** | Integer value where string expected (e.g. `DB_PORT: 5432` vs `"5432"`) | Fix the type in the encrypted values |
+| **Wrong Type in SOPS** | Encrypted `secrets` value has the wrong YAML shape | Re-encrypt the file with `secrets` as a map |
 | **Stuck Sync** | Health check path changed to non-existent endpoint, pods never become Ready | Fix the health check path in values.yaml |
-| **Stale Job** | Immutable Job spec modified, ArgoCD can't update it | Delete the old Job via ArgoCD UI or kubectl |
+| **Stale Job** | PreSync migration Job template changed so the hook fails before sync | Restore the migration Job command and re-sync |
 | **Orphaned Resource** | Deployment/Service renamed, old resources remain (prune disabled) | Delete orphaned resources via ArgoCD UI |
-| **PVC Incompatible** | PostgreSQL major version changed, data files incompatible | Revert the image version or delete the PVC |
 
 ## Architecture
 
@@ -70,6 +69,7 @@ A hands-on ArgoCD troubleshooting environment that randomly injects realistic Gi
 | Helm | `brew install helm` | Required for Traefik install |
 
 On Linux, you need k3s installed directly (no Colima needed), plus `age`, `sops`, and `helm`.
+Initial Linux setup needs `sudo` for k3s installation and may prompt again during `deploy-all.sh` if the script has to repair `/etc/rancher/k3s/config.yaml`, restart k3s, or import the locally built scenario-controller image into k3s containerd. Normal lab use after deployment is through `kubectl`, ArgoCD, and Gitea and does not require `sudo`.
 
 ### Deploy
 
@@ -118,7 +118,7 @@ waiting for ArgoCD application to be Healthy and Synced...
 application is Healthy and Synced
 waiting 2m30s before injecting next scenario...
 === INJECTING SCENARIO: sops-decrypt-failure ===
-description: Removes the sops metadata block from the encrypted secrets file...
+description: Corrupts the age-encrypted SOPS data key...
 scenario "sops-decrypt-failure" injected successfully, pushed to git
 waiting for user to fix the issue (app must return to Healthy + Synced)...
 ```
@@ -176,8 +176,8 @@ The controller detects the app is healthy again and logs the explanation:
 ```
 application is Healthy and Synced again!
 === SCENARIO EXPLANATION: sops-decrypt-failure ===
-what happened: The sops metadata block was removed from secrets.yaml.enc...
-how to fix: Re-encrypt the file or restore the sops metadata block...
+what happened: The age-encrypted SOPS data key in secrets.yaml.enc was corrupted...
+how to fix: Re-encrypt the file or restore the encrypted file from history...
 diagnostic commands:
   $ kubectl get applications -n argocd django-app -o jsonpath='{.status.conditions}'
   $ kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server --tail=50
@@ -203,7 +203,7 @@ Then it waits another random interval before injecting the next failure.
 │   ├── cmd/main.go            # Main loop
 │   ├── internal/argocd/       # K8s dynamic client for Application CR
 │   ├── internal/git/          # Git clone/modify/push via os/exec
-│   ├── internal/scenarios/    # 8 scenario implementations
+│   ├── internal/scenarios/    # 7 scenario implementations
 │   └── Dockerfile             # Multi-stage build
 ├── scripts/
 │   ├── deploy-all.sh          # Full deployment script
@@ -217,7 +217,7 @@ Then it waits another random interval before injecting the next failure.
 | Platform | Kubernetes | Notes |
 |----------|-----------|-------|
 | macOS (Apple Silicon / Intel) | Colima + k3s | Primary dev platform |
-| Linux (Ubuntu/Debian) | Native k3s | Requires sudo for k3s install |
+| Linux (Ubuntu/Debian) | Native k3s | Requires sudo for initial host setup |
 
 ### macOS Setup
 
@@ -230,12 +230,14 @@ colima start --kubernetes --runtime containerd --cpu 4 --memory 6 --disk 60
 
 ```bash
 # Install k3s
-curl -sfL https://get.k3s.io | sh -
+curl -sfL https://get.k3s.io | sudo sh -
 
 # Install tools
 sudo apt install age
 # Install sops and helm manually (see their GitHub releases)
 ```
+
+The privileged Linux steps are mostly host setup: k3s installation, occasional k3s advertised-IP repair if your host IP changes, and local image import when Docker is used as the fallback builder. If `nerdctl` is installed and can build into the k3s/containerd namespace, `deploy-all.sh` can avoid the Docker `save | sudo k3s ctr images import` fallback. Re-running the lab after it is deployed should only require unprivileged `kubectl` commands unless you rebuild/redeploy the controller image or reset k3s.
 
 ## Configuration
 
