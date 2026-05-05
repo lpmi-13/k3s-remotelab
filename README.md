@@ -19,10 +19,14 @@ A hands-on ArgoCD troubleshooting environment that randomly injects realistic Gi
 | **Missing ConfigMap** | Deployment references a non-existent ConfigMap | Restore the ConfigMap reference |
 | **SOPS Decrypt Failure** | SOPS age data-key block corrupted in encrypted secrets file | Restore the encrypted file or re-encrypt it |
 | **HMAC Mismatch** | Ciphertext tampered without updating MAC | Re-encrypt the secrets file with valid data |
-| **Wrong Type in SOPS** | Encrypted `secrets` value has the wrong YAML shape | Re-encrypt the file with `secrets` as a map |
+| **Wrong Type in SOPS** | Encrypted `secrets` value is randomized to a wrong shape | Re-encrypt the file with `secrets` as a valid env-var map |
 | **Stuck Sync** | Health check path changed to non-existent endpoint, pods never become Ready | Fix the health check path in values.yaml |
 | **Stale Job** | PreSync migration Job template changed so the hook fails before sync | Restore the migration Job command and re-sync |
 | **Orphaned Resource** | Deployment/Service renamed, old resources remain (prune disabled) | Delete orphaned resources via ArgoCD UI |
+
+The Wrong Type in SOPS scenario chooses a variant at injection time: `secrets`
+may be replaced with a string, list, int, or an invalid map shape such as a bad
+environment variable name.
 
 ## Architecture
 

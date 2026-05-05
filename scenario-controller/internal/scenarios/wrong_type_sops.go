@@ -2,6 +2,8 @@ package scenarios
 
 import (
 	"fmt"
+	"log"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,9 +11,45 @@ import (
 	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
 )
 
-// WrongTypeSops re-encrypts the secrets file with a scalar where the chart
-// expects a map. This causes Helm template rendering to fail while ranging over
-// .Values.secrets.
+type wrongTypeSopsVariant struct {
+	name      string
+	plaintext string
+}
+
+var wrongTypeSopsVariants = []wrongTypeSopsVariant{
+	{
+		name: "string",
+		plaintext: `# Secrets for django-app
+secrets: "not-a-map"
+`,
+	},
+	{
+		name: "list",
+		plaintext: `# Secrets for django-app
+secrets:
+  - DB_PASSWORD=not-a-map
+  - SECRET_KEY=wrong-list-shape
+`,
+	},
+	{
+		name: "int",
+		plaintext: `# Secrets for django-app
+secrets: 404
+`,
+	},
+	{
+		name: "map",
+		plaintext: `# Secrets for django-app
+secrets:
+  invalid-env-name: "wrong-map-shape"
+`,
+	},
+}
+
+// WrongTypeSops re-encrypts the secrets file with a value that does not match
+// the chart's expected secrets map of environment variable names to scalar
+// strings. Depending on the variant, ArgoCD fails during manifest generation or
+// while applying the rendered Deployment.
 type WrongTypeSops struct{}
 
 func (s *WrongTypeSops) Name() string {
@@ -19,8 +57,8 @@ func (s *WrongTypeSops) Name() string {
 }
 
 func (s *WrongTypeSops) Description() string {
-	return "Re-encrypts the secrets file with the wrong YAML shape (secrets is a scalar " +
-		"instead of a map), causing Helm rendering to fail."
+	return "Re-encrypts the secrets file with a random wrong YAML shape for .Values.secrets " +
+		"(string, list, int, or invalid map), causing ArgoCD rendering or sync to fail."
 }
 
 func (s *WrongTypeSops) Inject(gitClient *git.Client) error {
@@ -34,9 +72,10 @@ func (s *WrongTypeSops) Inject(gitClient *git.Client) error {
 				return fmt.Errorf("SOPS_AGE_KEY or AGE_PUBLIC_KEY not configured")
 			}
 
-			plaintext := `# Secrets for django-app
-secrets: "not-a-map"
-`
+			variant := randomWrongTypeSopsVariant()
+			log.Printf("injecting wrong-type-sops variant: %s", variant.name)
+			plaintext := variant.plaintext
+
 			plaintextPath := filepath.Join(w.Dir(), "plaintext-secrets.yaml")
 			if err := os.WriteFile(plaintextPath, []byte(plaintext), 0o644); err != nil {
 				return fmt.Errorf("failed to write plaintext secrets: %w", err)
@@ -88,10 +127,11 @@ func (s *WrongTypeSops) Revert(gitClient *git.Client) error {
 }
 
 func (s *WrongTypeSops) Explanation() string {
-	return "The secrets.yaml.enc file was re-encrypted with .Values.secrets set to a scalar " +
-		"string instead of the map the Helm templates expect. Helm cannot range over that value " +
-		"as key/value environment variables, so manifest generation fails. The fix is to " +
-		"re-encrypt secrets.yaml.enc with a proper secrets map."
+	return "The secrets.yaml.enc file was re-encrypted with .Values.secrets set to a value " +
+		"that does not match the chart's expected map of environment variable names to scalar " +
+		"strings. The injected value may be a string, list, int, or a map with an invalid " +
+		"environment variable name, so ArgoCD cannot render or apply the Deployment as expected. " +
+		"The fix is to re-encrypt secrets.yaml.enc with a proper secrets map."
 }
 
 func (s *WrongTypeSops) DiagnoseCommands() []string {
@@ -101,4 +141,8 @@ func (s *WrongTypeSops) DiagnoseCommands() []string {
 		"kubectl logs -n applications -l app=django --tail=30",
 		"kubectl get applications -n argocd django-app -o jsonpath='{.status.operationState.message}'",
 	}
+}
+
+func randomWrongTypeSopsVariant() wrongTypeSopsVariant {
+	return wrongTypeSopsVariants[rand.Intn(len(wrongTypeSopsVariants))]
 }
