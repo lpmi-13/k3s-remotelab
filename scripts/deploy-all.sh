@@ -340,7 +340,7 @@ echo ""
 # --- Install ArgoCD ---
 echo "Step 4: Installing ArgoCD..."
 kubectl apply --server-side --force-conflicts -n argocd \
-    -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+    -f "$REPO_DIR/manifests/gitops/argocd-install.yaml"
 echo "  Waiting for ArgoCD server..."
 kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
 echo "  OK: ArgoCD installed"
@@ -451,15 +451,12 @@ echo "  Private key saved to: secrets/keys/local.key"
 echo ""
 
 # --- Deploy Infrastructure ---
-echo "Step 7: Deploying PostgreSQL, Redis, and Gitea..."
+echo "Step 7: Deploying PostgreSQL and Gitea..."
 kubectl apply -f "$REPO_DIR/manifests/applications/postgresql.yaml"
-kubectl apply -f "$REPO_DIR/manifests/applications/redis.yaml"
 kubectl apply -f "$REPO_DIR/manifests/applications/gitea.yaml"
 
 echo "  Waiting for PostgreSQL..."
 kubectl wait --for=condition=available --timeout=300s deployment/postgresql -n applications
-echo "  Waiting for Redis..."
-kubectl wait --for=condition=available --timeout=300s deployment/redis -n applications
 echo "  Waiting for Gitea..."
 kubectl wait --for=condition=available --timeout=300s deployment/gitea -n applications
 echo "  OK: Infrastructure ready"
@@ -660,12 +657,10 @@ echo "========================================"
 echo ""
 echo "Access:"
 echo "  ArgoCD:     https://localhost/argocd"
-echo "  Gitea:      https://localhost/gitea"
 echo "  Django:     https://localhost/django/api/health/"
 echo ""
 echo "Credentials:"
 echo "  ArgoCD:  admin / $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "run: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d")"
-echo "  Gitea:   remotelab / remotelab"
 echo ""
 echo "SOPS Key: secrets/keys/local.key"
 echo ""

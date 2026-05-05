@@ -28,9 +28,6 @@ env:
   DB_NAME: "remotelab"
   DB_USER: "remotelab"
   DB_PASSWORD: "remotelab"
-  REDIS_URL: "redis://redis:6379/1"
-  CELERY_BROKER_URL: "redis://redis:6379/0"
-  CELERY_RESULT_BACKEND: "redis://redis:6379/0"
 
 # SOPS-encrypted secrets (overrides env values above when decrypted)
 # These values are managed via sops and decrypted by ArgoCD's helm-secrets plugin
@@ -48,12 +45,6 @@ metrics:
   enabled: true
   port: "8000"
   path: "/metrics"
-
-celery:
-  enabled: false
-
-celeryBeat:
-  enabled: false
 
 # ConfigMap that the app expects to exist
 appConfig:

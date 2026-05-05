@@ -81,62 +81,10 @@ secrets: "not-a-map"
 }
 
 func (s *WrongTypeSops) Revert(gitClient *git.Client) error {
-	return gitClient.CloneAndModify(
-		"chore: fix database secrets types",
-		func(w *git.WorkDir) error {
-			ageKey := gitClient.SopsAgeKey()
-			agePubKey := gitClient.AgePublicKey()
-
-			if ageKey == "" || agePubKey == "" {
-				return nil // cannot revert without keys
-			}
-
-			// Re-encrypt with correct types.
-			plaintext := `# Secrets for django-app
-secrets:
-  DB_PASSWORD: "remotelab"
-  SECRET_KEY: "django-insecure-remotelab-key-change-in-production"
-  DB_PORT: "5432"
-`
-			plaintextPath := filepath.Join(w.Dir(), "plaintext-secrets.yaml")
-			if err := os.WriteFile(plaintextPath, []byte(plaintext), 0o644); err != nil {
-				return fmt.Errorf("failed to write plaintext: %w", err)
-			}
-			defer os.Remove(plaintextPath)
-
-			keyFile, err := os.CreateTemp("", "age-key-*")
-			if err != nil {
-				return fmt.Errorf("failed to create temp key file: %w", err)
-			}
-			defer os.Remove(keyFile.Name())
-
-			if _, err := keyFile.WriteString(ageKey); err != nil {
-				keyFile.Close()
-				return fmt.Errorf("failed to write age key: %w", err)
-			}
-			keyFile.Close()
-
-			outputPath := w.FilePath(SecretsFile)
-			cmd := exec.Command("sops",
-				"--encrypt",
-				"--age", agePubKey,
-				"--input-type", "yaml",
-				"--output-type", "yaml",
-				"--output", outputPath,
-				plaintextPath,
-			)
-			cmd.Env = append(os.Environ(),
-				fmt.Sprintf("SOPS_AGE_KEY_FILE=%s", keyFile.Name()),
-			)
-
-			output, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("sops encrypt failed: %w\noutput: %s", err, string(output))
-			}
-
-			return nil
-		},
-	)
+	// The user must restore or re-encrypt the SOPS file with a valid map. Once
+	// ArgoCD is Healthy+Synced again, their fixed file is already the desired
+	// state and the controller should not overwrite it with a fresh encryption.
+	return nil
 }
 
 func (s *WrongTypeSops) Explanation() string {

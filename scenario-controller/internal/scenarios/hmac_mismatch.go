@@ -31,54 +31,77 @@ func (s *HMACMismatch) Inject(gitClient *git.Client) error {
 				return fmt.Errorf("failed to read %s: %w", SecretsFile, err)
 			}
 
-			content := string(data)
-
-			// Find the sops metadata block to ensure we only modify data above it.
-			sopsIdx := strings.Index(content, "\nsops:\n")
-			if sopsIdx == -1 {
-				return fmt.Errorf("sops metadata block not found in %s", SecretsFile)
+			modified, err := tamperSopsCiphertext(string(data))
+			if err != nil {
+				return fmt.Errorf("%w in %s", err, SecretsFile)
 			}
 
-			dataSection := content[:sopsIdx]
-			sopsSection := content[sopsIdx:]
-
-			// Find an encrypted value (ENC[AES256_GCM,...]) and tamper with it.
-			// SOPS encrypted values look like: ENC[AES256_GCM,data:...,iv:...,tag:...,type:str]
-			encPrefix := "ENC[AES256_GCM,data:"
-			encIdx := strings.Index(dataSection, encPrefix)
-			if encIdx == -1 {
-				return fmt.Errorf("no encrypted values found in %s", SecretsFile)
-			}
-
-			// Find the end of the data portion and modify a few characters.
-			dataStart := encIdx + len(encPrefix)
-			commaIdx := strings.Index(dataSection[dataStart:], ",")
-			if commaIdx == -1 {
-				return fmt.Errorf("malformed encrypted value in %s", SecretsFile)
-			}
-
-			// Tamper with the base64 data by replacing a few characters.
-			encData := dataSection[dataStart : dataStart+commaIdx]
-			if len(encData) < 4 {
-				return fmt.Errorf("encrypted data too short to tamper with")
-			}
-
-			// Flip some characters in the base64-encoded ciphertext.
-			tampered := []byte(encData)
-			for i := 0; i < len(tampered) && i < 4; i++ {
-				if tampered[i] >= 'a' && tampered[i] <= 'z' {
-					tampered[i] = 'A' + (tampered[i] - 'a')
-				} else if tampered[i] >= 'A' && tampered[i] <= 'Z' {
-					tampered[i] = 'a' + (tampered[i] - 'A')
-				} else if tampered[i] >= '0' && tampered[i] <= '9' {
-					tampered[i] = '9' - (tampered[i] - '0')
-				}
-			}
-
-			modified := dataSection[:dataStart] + string(tampered) + dataSection[dataStart+commaIdx:]
-			return w.WriteFile(SecretsFile, []byte(modified+sopsSection))
+			return w.WriteFile(SecretsFile, []byte(modified))
 		},
 	)
+}
+
+func tamperSopsCiphertext(content string) (string, error) {
+	// Find the sops metadata block to ensure we only modify encrypted values
+	// above it. The encrypted top comment is not rendered into Helm values, so
+	// changing that line does not create an ArgoCD failure.
+	sopsIdx := strings.Index(content, "\nsops:\n")
+	if sopsIdx == -1 {
+		return "", fmt.Errorf("sops metadata block not found")
+	}
+
+	dataSection := content[:sopsIdx]
+	sopsSection := content[sopsIdx:]
+
+	encPrefix := "ENC[AES256_GCM,data:"
+	searchStart := 0
+
+	for {
+		relativeIdx := strings.Index(dataSection[searchStart:], encPrefix)
+		if relativeIdx == -1 {
+			return "", fmt.Errorf("no encrypted data values found")
+		}
+
+		encIdx := searchStart + relativeIdx
+		lineStart := strings.LastIndex(dataSection[:encIdx], "\n") + 1
+		linePrefix := strings.TrimSpace(dataSection[lineStart:encIdx])
+		if strings.HasPrefix(linePrefix, "#") {
+			searchStart = encIdx + len(encPrefix)
+			continue
+		}
+
+		dataStart := encIdx + len(encPrefix)
+		commaIdx := strings.Index(dataSection[dataStart:], ",")
+		if commaIdx == -1 {
+			return "", fmt.Errorf("malformed encrypted value")
+		}
+
+		encData := dataSection[dataStart : dataStart+commaIdx]
+		if len(encData) < 4 {
+			return "", fmt.Errorf("encrypted data too short to tamper with")
+		}
+
+		tampered := []byte(encData)
+		for i := 0; i < len(tampered) && i < 4; i++ {
+			tampered[i] = flipBase64Byte(tampered[i])
+		}
+
+		modified := dataSection[:dataStart] + string(tampered) + dataSection[dataStart+commaIdx:]
+		return modified + sopsSection, nil
+	}
+}
+
+func flipBase64Byte(b byte) byte {
+	switch {
+	case b >= 'a' && b <= 'z':
+		return 'A' + (b - 'a')
+	case b >= 'A' && b <= 'Z':
+		return 'a' + (b - 'A')
+	case b >= '0' && b <= '9':
+		return '9' - (b - '0')
+	default:
+		return b
+	}
 }
 
 func (s *HMACMismatch) Revert(gitClient *git.Client) error {

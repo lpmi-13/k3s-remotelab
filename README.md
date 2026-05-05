@@ -28,24 +28,24 @@ A hands-on ArgoCD troubleshooting environment that randomly injects realistic Gi
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    Local K3s Cluster                      │
-│                                                          │
+│                    Local K3s Cluster                    │
+│                                                         │
 │  ┌──────────┐    watches     ┌──────────────────────┐   │
 │  │ Scenario │───────────────>│   ArgoCD             │   │
 │  │Controller│                │   (Application CR)   │   │
 │  └─────┬────┘                └──────────┬───────────┘   │
-│        │ pushes                          │ syncs         │
-│        │ bad commits                     │               │
-│        v                                 v               │
+│        │ pushes                         │ syncs         │
+│        │ bad commits                    │               │
+│        v                                v               │
 │  ┌──────────┐                ┌──────────────────────┐   │
 │  │  Gitea   │<───────────────│   Django App         │   │
 │  │  (Git)   │   helm chart   │   (Deployment,       │   │
-│  └──────────┘   + SOPS       │    ConfigMap,         │   │
-│                  secrets      │    Service, Job)      │   │
-│                               └──────────────────────┘   │
-│                                                          │
-│  Backing services: PostgreSQL, Redis                     │
-│  Ingress: Traefik (path-based routing)                   │
+│  └──────────┘   + SOPS       │    ConfigMap,        │   │
+│                  secrets     │    Service, Job)     │   │
+│                              └──────────────────────┘   │
+│                                                         │
+│  Backing services: PostgreSQL                           │
+│  Ingress: Traefik (path-based routing)                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -69,7 +69,7 @@ A hands-on ArgoCD troubleshooting environment that randomly injects realistic Gi
 | Helm | `brew install helm` | Required for Traefik install |
 
 On Linux, you need k3s installed directly (no Colima needed), plus `age`, `sops`, and `helm`.
-Initial Linux setup needs `sudo` for k3s installation and may prompt again during `deploy-all.sh` if the script has to repair `/etc/rancher/k3s/config.yaml`, restart k3s, or import the locally built scenario-controller image into k3s containerd. Normal lab use after deployment is through `kubectl`, ArgoCD, and Gitea and does not require `sudo`.
+Initial Linux setup needs `sudo` for k3s installation and may prompt again during `deploy-all.sh` if the script has to repair `/etc/rancher/k3s/config.yaml`, restart k3s, or import the locally built scenario-controller image into k3s containerd. Normal lab use after deployment is through `kubectl`, ArgoCD, and git access to the internal Gitea service and does not require `sudo`.
 
 ### Deploy
 
@@ -79,9 +79,9 @@ Initial Linux setup needs `sudo` for k3s installation and may prompt again durin
 
 This takes about 5-10 minutes and:
 1. Starts Colima with k3s (or verifies existing k3s on Linux)
-2. Installs ArgoCD with SOPS/helm-secrets support
+2. Installs the pinned ArgoCD v3.3.7 manifest with SOPS/helm-secrets support
 3. Generates age encryption keys
-4. Deploys PostgreSQL, Redis, and Gitea
+4. Deploys PostgreSQL and Gitea
 5. Pushes the Django Helm chart to Gitea with encrypted secrets
 6. Creates the ArgoCD Application
 7. Builds and deploys the scenario controller
@@ -92,7 +92,6 @@ This takes about 5-10 minutes and:
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | ArgoCD | https://localhost/argocd | admin / remotelab |
-| Gitea | https://localhost/gitea | remotelab / remotelab |
 | Django | https://localhost/django/api/health/ | - |
 
 Accept the self-signed certificate warning in your browser.
@@ -144,7 +143,7 @@ kubectl describe pod -n applications -l app=django
 
 ### Fixing Issues
 
-Most fixes involve editing the Helm chart in Gitea:
+Most fixes involve editing the Helm chart in the internal Gitea git repository. No Gitea browser UI is required for the learner path.
 
 ```bash
 # Clone the repo locally (port-forward first)
@@ -167,7 +166,12 @@ ArgoCD will automatically detect the change and re-sync.
 
 For scenarios requiring resource deletion (stale Job, orphaned resources):
 - Use the ArgoCD UI to delete specific resources
-- Or use kubectl: `kubectl delete job <name> -n applications`
+- Or use kubectl, for example:
+  `kubectl delete job <name> -n applications` or
+  `kubectl delete deployment django-web -n applications`
+- If a failed hook sync keeps retrying after the git fix, terminate the running
+  ArgoCD operation in the UI, or patch the Application with:
+  `kubectl patch application django-app -n argocd --type=merge -p '{"operation":null}'`
 
 ### After a Fix
 
@@ -191,8 +195,8 @@ Then it waits another random interval before injecting the next failure.
 ├── argocd-apps/               # ArgoCD Application definition
 │   └── django-app.yaml        # Points at Gitea repo, uses helm-secrets
 ├── manifests/
-│   ├── applications/          # Gitea, PostgreSQL, Redis, scenario controller
-│   ├── gitops/                # ArgoCD config, SOPS setup, ingress
+│   ├── applications/          # Gitea, PostgreSQL, scenario controller
+│   ├── gitops/                # Pinned ArgoCD install, SOPS setup, ingress
 │   └── infrastructure/        # Traefik ingress rules
 ├── sample-django-app/
 │   └── chart/django-app/      # Helm chart (pushed to Gitea at deploy)

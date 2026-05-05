@@ -33,6 +33,8 @@ type Scenario interface {
 // Registry holds all registered scenarios and provides random selection.
 type Registry struct {
 	scenarios []Scenario
+	queue     []Scenario
+	lastName  string
 }
 
 // NewRegistry creates a new empty scenario registry.
@@ -46,9 +48,21 @@ func (r *Registry) Register(s Scenario) {
 	r.scenarios = append(r.scenarios, s)
 }
 
-// Random selects and returns a random scenario from the registry.
+// Random selects and returns a scenario from a shuffled queue. Each registered
+// scenario is returned once before the queue is shuffled again.
 func (r *Registry) Random() Scenario {
-	return r.scenarios[rand.Intn(len(r.scenarios))]
+	if len(r.scenarios) == 0 {
+		panic("no scenarios registered")
+	}
+
+	if len(r.queue) == 0 {
+		r.refillQueue()
+	}
+
+	scenario := r.queue[0]
+	r.queue = r.queue[1:]
+	r.lastName = scenario.Name()
+	return scenario
 }
 
 // Count returns the number of registered scenarios.
@@ -63,6 +77,18 @@ func (r *Registry) Names() []string {
 		names[i] = s.Name()
 	}
 	return names
+}
+
+func (r *Registry) refillQueue() {
+	indices := rand.Perm(len(r.scenarios))
+	r.queue = make([]Scenario, len(indices))
+	for i, idx := range indices {
+		r.queue[i] = r.scenarios[idx]
+	}
+
+	if len(r.queue) > 1 && r.queue[0].Name() == r.lastName {
+		r.queue[0], r.queue[1] = r.queue[1], r.queue[0]
+	}
 }
 
 // Common file paths within the cloned repo that scenarios operate on.

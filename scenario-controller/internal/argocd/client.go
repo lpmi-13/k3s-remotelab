@@ -55,8 +55,8 @@ func NewClient(argocdServer, appName string) (*Client, error) {
 }
 
 // GetAppStatus returns the health, sync, and operation phase of the ArgoCD
-// Application. It reads .status.health.status, .status.sync.status, and
-// .status.operationState.phase from the Application CR.
+// Application. It reads .status.health.status, .status.sync.status, and the
+// active operation state from the Application CR.
 //
 // Typical health values: "Healthy", "Degraded", "Progressing", "Missing", "Unknown"
 // Typical sync values:   "Synced", "OutOfSync", "Unknown"
@@ -75,6 +75,15 @@ func (c *Client) GetAppStatus(ctx context.Context) (health string, sync string, 
 	sync, err = extractNestedString(app, "status", "sync", "status")
 	if err != nil {
 		return "", "", "", fmt.Errorf("failed to read sync status: %w", err)
+	}
+
+	// ArgoCD can leave .status.operationState.phase as "Running" after a user
+	// terminates a failed sync retry. The top-level .operation field is the
+	// active operation; if it is absent, the app should not be considered busy.
+	if _, found, err := unstructured.NestedMap(app.Object, "operation"); err != nil {
+		return "", "", "", fmt.Errorf("failed to read active operation: %w", err)
+	} else if !found {
+		return health, sync, "Succeeded", nil
 	}
 
 	operationPhase, err = extractNestedString(app, "status", "operationState", "phase")

@@ -6,7 +6,7 @@ metadata:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.middlewares: applications-strip-gitea@kubernetescrd,applications-strip-django@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: applications-strip-django@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
@@ -16,13 +16,6 @@ spec:
   rules:
   - http:
       paths:
-      - path: /gitea
-        pathType: Prefix
-        backend:
-          service:
-            name: gitea
-            port:
-              number: 3000
       - path: /django
         pathType: Prefix
         backend:
@@ -30,16 +23,6 @@ spec:
             name: django
             port:
               number: 8000
----
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: strip-gitea
-  namespace: applications
-spec:
-  stripPrefix:
-    prefixes:
-      - /gitea
 ---
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
