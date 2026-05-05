@@ -6,6 +6,10 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/platform.sh"
 
 TRAEFIK_CRD_DEFINITIONS_URL="https://raw.githubusercontent.com/traefik/traefik/v3.5/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml"
+ARGOCD_ADMIN_PASSWORD="remotelab"
+# bcrypt hash for ARGOCD_ADMIN_PASSWORD. ArgoCD stores the admin password hash
+# in argocd-secret rather than the generated initial-admin secret.
+ARGOCD_ADMIN_PASSWORD_HASH='$2a$10$53xm8W5NWtQbIe2oMGQlheoTFSxh4El7pz1Mdf3NHiRGdund2oPya'
 
 show_help() {
     echo "Usage: ./deploy-all.sh [OPTIONS]"
@@ -154,6 +158,18 @@ wait_for_traefik_middleware_api() {
 
     echo "  ERROR: Traefik Middleware API did not become discoverable"
     exit 1
+}
+
+set_argocd_admin_password() {
+    local password_mtime
+
+    password_mtime=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    kubectl -n argocd patch secret argocd-secret --type=merge \
+        --patch "{\"stringData\":{\"admin.password\":\"${ARGOCD_ADMIN_PASSWORD_HASH}\",\"admin.passwordMtime\":\"${password_mtime}\"}}" >/dev/null
+    kubectl -n argocd delete secret argocd-initial-admin-secret --ignore-not-found=true >/dev/null
+    kubectl -n argocd rollout restart deployment/argocd-server >/dev/null
+    kubectl -n argocd rollout status deployment/argocd-server --timeout=300s >/dev/null
 }
 
 ensure_traefik_crds() {
@@ -359,45 +375,10 @@ kubectl patch deployment argocd-server -n argocd --type='strategic' \
 
 kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
 
-# Set a deterministic admin password (remotelab)
+# Set a deterministic admin password.
 echo "  Setting ArgoCD admin password..."
-
-# Wait for the initial admin secret to be created by ArgoCD server
-PASS_WAIT=0
-while ! kubectl -n argocd get secret argocd-initial-admin-secret &>/dev/null; do
-    if [ $PASS_WAIT -ge 30 ]; then
-        echo "  WARNING: argocd-initial-admin-secret not found after 30s, skipping password change"
-        break
-    fi
-    sleep 3
-    PASS_WAIT=$((PASS_WAIT + 3))
-done
-
-if kubectl -n argocd get secret argocd-initial-admin-secret &>/dev/null; then
-    pkill -f "port-forward.*argocd-server" 2>/dev/null || true
-    sleep 1
-    kubectl port-forward svc/argocd-server -n argocd 8444:80 &>/dev/null &
-    ARGOCD_PF_PID=$!
-    sleep 5
-
-    ARGOCD_INITIAL_PASS=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d)
-    ARGOCD_SESSION=$(curl -s "http://localhost:8444/argocd/api/v1/session" \
-        -H "Content-Type: application/json" \
-        -d "{\"username\":\"admin\",\"password\":\"$ARGOCD_INITIAL_PASS\"}" 2>/dev/null || echo "")
-    ARGOCD_TOKEN=$(echo "$ARGOCD_SESSION" | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
-
-    if [ -n "$ARGOCD_TOKEN" ]; then
-        curl -s -X PUT "http://localhost:8444/argocd/api/v1/account/password" \
-            -H "Authorization: Bearer $ARGOCD_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"currentPassword\":\"$ARGOCD_INITIAL_PASS\",\"newPassword\":\"remotelab\"}" > /dev/null 2>&1
-        echo "  OK: ArgoCD password set to 'remotelab'"
-    else
-        echo "  WARNING: Could not change ArgoCD password (API not ready). Use initial password from:"
-        echo "    kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d"
-    fi
-    kill $ARGOCD_PF_PID 2>/dev/null || true
-fi
+set_argocd_admin_password
+echo "  OK: ArgoCD password set to '${ARGOCD_ADMIN_PASSWORD}'"
 
 echo "  OK: ArgoCD configured"
 echo ""
@@ -660,7 +641,7 @@ echo "  ArgoCD:     https://localhost/argocd"
 echo "  Django:     https://localhost/django/api/health/"
 echo ""
 echo "Credentials:"
-echo "  ArgoCD:  admin / $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "run: kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d")"
+echo "  ArgoCD:  admin / ${ARGOCD_ADMIN_PASSWORD}"
 echo ""
 echo "SOPS Key: secrets/keys/local.key"
 echo ""

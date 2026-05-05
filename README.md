@@ -99,6 +99,8 @@ This takes about 5-10 minutes and:
 | Django | https://localhost/django/api/health/ | - |
 
 Accept the self-signed certificate warning in your browser.
+The deploy script patches ArgoCD's admin password to `remotelab` directly and
+restarts `argocd-server`; deployment fails if that password cannot be applied.
 
 ### Cleanup
 
