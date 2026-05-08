@@ -3,7 +3,7 @@ package scenarios
 import (
 	"testing"
 
-	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
+	"github.com/lpmi-13/argo-remotelab/scenario-controller/internal/git"
 )
 
 type testScenario struct {

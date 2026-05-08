@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
+	"github.com/lpmi-13/argo-remotelab/scenario-controller/internal/git"
 )
 
 // OrphanedResource renames the Deployment in the template from "django" to

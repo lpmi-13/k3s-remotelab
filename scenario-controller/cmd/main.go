@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/argocd"
-	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
-	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/scenarios"
+	"github.com/lpmi-13/argo-remotelab/scenario-controller/internal/argocd"
+	"github.com/lpmi-13/argo-remotelab/scenario-controller/internal/git"
+	"github.com/lpmi-13/argo-remotelab/scenario-controller/internal/scenarios"
 )
 
 func main() {
@@ -127,6 +127,10 @@ func runLoop(
 			return err
 		}
 		log.Println("application is now reporting a sync or health problem - scenario injection confirmed")
+		if err := markScenarioReady(ctx, argoClient, scenario.Name()); err != nil {
+			return err
+		}
+		log.Printf("marked scenario %q ready for lab entry", scenario.Name())
 		log.Println("helpful diagnostic commands:")
 		for _, cmd := range scenario.DiagnoseCommands() {
 			log.Printf("  $ %s", cmd)
@@ -147,6 +151,25 @@ func runLoop(
 		}
 
 		log.Println("--- cycle complete, starting next round ---")
+	}
+}
+
+func markScenarioReady(ctx context.Context, client *argocd.Client, scenarioName string) error {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		if err := client.MarkScenarioReady(ctx, scenarioName); err != nil {
+			log.Printf("warning: failed to mark scenario ready: %v", err)
+		} else {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 }
 

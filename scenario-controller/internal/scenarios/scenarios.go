@@ -4,7 +4,7 @@ import (
 	"log"
 	"math/rand"
 
-	"github.com/lpmi-13/k3s-remotelab/scenario-controller/internal/git"
+	"github.com/lpmi-13/argo-remotelab/scenario-controller/internal/git"
 )
 
 // Scenario defines the interface that each failure scenario must implement.

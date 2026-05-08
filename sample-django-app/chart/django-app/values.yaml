@@ -1,6 +1,6 @@
 image:
   registry: ghcr.io
-  repository: lpmi-13/k3s-remotelab-django
+  repository: lpmi-13/argo-remotelab-django
   tag: latest
   pullPolicy: IfNotPresent
 

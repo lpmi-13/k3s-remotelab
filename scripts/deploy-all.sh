@@ -530,7 +530,7 @@ SOPSEOF
 cat > /tmp/remotelab-secrets-plain.yaml <<SECRETSEOF
 secrets:
   DB_PASSWORD: "remotelab"
-  SECRET_KEY: "django-production-secret-key-k3s-remotelab-2024"
+  SECRET_KEY: "django-production-secret-key-argo-remotelab-2024"
   API_TOKEN: "tok_prod_abc123def456"
 SECRETSEOF
 
@@ -607,17 +607,17 @@ echo ""
 # --- Build Scenario Controller Image ---
 echo "Step 14: Building Scenario Controller image..."
 if [[ "$OS" == "Darwin" ]]; then
-    colima nerdctl -- build -t ghcr.io/lpmi-13/k3s-remotelab-scenario-controller:latest \
+    colima nerdctl -- build -t ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest \
         --namespace k8s.io "$REPO_DIR/scenario-controller" 2>&1 | tail -3
 else
     # On Linux with k3s, use ctr to import
     if command -v nerdctl &>/dev/null; then
-        nerdctl build -t ghcr.io/lpmi-13/k3s-remotelab-scenario-controller:latest \
+        nerdctl build -t ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest \
             --namespace k8s.io "$REPO_DIR/scenario-controller"
     else
         # Fallback: build with docker and import
-        docker build -t ghcr.io/lpmi-13/k3s-remotelab-scenario-controller:latest "$REPO_DIR/scenario-controller"
-        docker save ghcr.io/lpmi-13/k3s-remotelab-scenario-controller:latest | sudo k3s ctr images import -
+        docker build -t ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest "$REPO_DIR/scenario-controller"
+        docker save ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest | sudo k3s ctr images import -
     fi
 fi
 echo "  OK: Scenario controller image built"

@@ -21,6 +21,11 @@ var applicationGVR = schema.GroupVersionResource{
 	Resource: "applications",
 }
 
+const (
+	FirstScenarioReadyAnnotation = "remotelab.io/first-scenario-ready"
+	CurrentScenarioAnnotation    = "remotelab.io/current-scenario"
+)
+
 // Client checks the health of an ArgoCD Application by reading its
 // status from the Kubernetes API. This is simpler and more reliable than
 // using the ArgoCD REST API (no auth token needed, just RBAC).
@@ -97,8 +102,52 @@ func (c *Client) GetAppStatus(ctx context.Context) (health string, sync string, 
 // RequestHardRefresh asks ArgoCD to immediately refresh the Application and
 // invalidate cached manifest generation results.
 func (c *Client) RequestHardRefresh(ctx context.Context) error {
-	patch := []byte(`{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"hard"}}}`)
-	_, err := c.dynClient.Resource(applicationGVR).Namespace(c.namespace).Patch(
+	if err := c.patchAnnotations(ctx, map[string]string{"argocd.argoproj.io/refresh": "hard"}); err != nil {
+		return fmt.Errorf("failed to request hard refresh for application %q: %w", c.appName, err)
+	}
+	return nil
+}
+
+// MarkScenarioReady records that ArgoCD has detected an injected scenario and
+// the lab can be shown to the learner.
+func (c *Client) MarkScenarioReady(ctx context.Context, scenarioName string) error {
+	annotations, err := scenarioReadyAnnotations(scenarioName)
+	if err != nil {
+		return err
+	}
+
+	if err := c.patchAnnotations(ctx, annotations); err != nil {
+		return fmt.Errorf("failed to mark scenario %q ready on application %q: %w", scenarioName, c.appName, err)
+	}
+	return nil
+}
+
+func scenarioReadyAnnotations(scenarioName string) (map[string]string, error) {
+	if scenarioName == "" {
+		return nil, fmt.Errorf("scenario name cannot be empty")
+	}
+
+	return map[string]string{
+		FirstScenarioReadyAnnotation: "true",
+		CurrentScenarioAnnotation:    scenarioName,
+	}, nil
+}
+
+func annotationPatch(annotations map[string]string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"metadata": map[string]any{
+			"annotations": annotations,
+		},
+	})
+}
+
+func (c *Client) patchAnnotations(ctx context.Context, annotations map[string]string) error {
+	patch, err := annotationPatch(annotations)
+	if err != nil {
+		return fmt.Errorf("failed to encode annotation patch: %w", err)
+	}
+
+	_, err = c.dynClient.Resource(applicationGVR).Namespace(c.namespace).Patch(
 		ctx,
 		c.appName,
 		types.MergePatchType,
@@ -106,7 +155,7 @@ func (c *Client) RequestHardRefresh(ctx context.Context) error {
 		metav1.PatchOptions{},
 	)
 	if err != nil {
-		return fmt.Errorf("failed to request hard refresh for application %q: %w", c.appName, err)
+		return err
 	}
 	return nil
 }

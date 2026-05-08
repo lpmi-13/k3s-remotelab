@@ -1,4 +1,4 @@
-module github.com/lpmi-13/k3s-remotelab/scenario-controller
+module github.com/lpmi-13/argo-remotelab/scenario-controller
 
 go 1.25.2
 

@@ -97,7 +97,7 @@ spec:
           # Clone source from GitHub
           echo "Cloning source from GitHub..."
           clone_attempts=0
-          until git clone --depth 1 "https://github.com/lpmi-13/k3s-remotelab.git" /tmp/source 2>&1; do
+          until git clone --depth 1 "https://github.com/lpmi-13/argo-remotelab.git" /tmp/source 2>&1; do
             clone_attempts=$((clone_attempts + 1))
             if [ $clone_attempts -ge 5 ]; then
               echo "Failed to clone from GitHub"
@@ -125,7 +125,7 @@ spec:
           cat > /tmp/secrets-plain.yaml <<EOF
           secrets:
             DB_PASSWORD: "remotelab"
-            SECRET_KEY: "django-production-secret-key-k3s-remotelab-2024"
+            SECRET_KEY: "django-production-secret-key-argo-remotelab-2024"
             API_TOKEN: "tok_prod_abc123def456"
           EOF
 
