@@ -1,4 +1,4 @@
-# GitOps Failure Lab
+# Argo GitOps Failure Lab
 
 A hands-on ArgoCD troubleshooting environment that randomly injects realistic GitOps failures into a running application. You diagnose and fix each issue using the ArgoCD UI and kubectl, then the system explains what went wrong and moves on to the next challenge.
 
