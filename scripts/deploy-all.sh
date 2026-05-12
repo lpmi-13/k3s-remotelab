@@ -490,9 +490,14 @@ if ! command -v sops &>/dev/null; then
     exit 1
 fi
 
-# Port-forward to Gitea for direct git access
-kubectl port-forward svc/gitea -n applications 3000:3000 &>/dev/null &
+# Port-forward to Gitea for direct git access. Kept alive past script exit
+# so the user can clone/push against http://localhost:3000 without restarting it.
+# cleanup-all.sh removes it; re-running deploy-all.sh replaces it.
+pkill -f "kubectl port-forward svc/gitea .* 3000:3000" 2>/dev/null || true
+nohup kubectl port-forward svc/gitea -n applications 3000:3000 \
+    >/tmp/argo-remotelab-gitea-pf.log 2>&1 &
 PF_PID=$!
+disown "$PF_PID"
 sleep 3
 
 # Create repo via API
@@ -553,7 +558,6 @@ git push -f -u origin main -q 2>/dev/null
 # Cleanup
 cd "$REPO_DIR"
 rm -rf "$WORK_DIR"
-kill $PF_PID 2>/dev/null || true
 
 echo "  OK: Repository initialized with local Helm chart + SOPS secrets"
 echo ""
@@ -655,6 +659,11 @@ echo "  2. The scenario controller watches ArgoCD health status"
 echo "  3. When healthy, it randomly injects a failure (bad SOPS, missing ConfigMap, etc.)"
 echo "  4. You troubleshoot using ArgoCD UI and kubectl"
 echo "  5. Once you fix it, the controller logs an explanation and waits before the next failure"
+echo ""
+echo "Fix scenarios by cloning the lab repo, editing, and pushing:"
+echo "  git clone http://remotelab:remotelab@localhost:3000/remotelab/django-app.git"
+echo "  # for SOPS-encrypted files: export SOPS_AGE_KEY_FILE=${REPO_DIR}/secrets/keys/local.key"
+echo "  (Gitea is reachable at http://localhost:3000 via a persistent port-forward; cleanup-all.sh removes it.)"
 echo ""
 echo "Useful commands:"
 echo "  kubectl get applications -n argocd"

@@ -65,3 +65,6 @@ charts/*/charts/
 *.tar.gz
 build/
 dist/
+
+# Locally cloned django-app (if you clone it into this directory)
+django-app/

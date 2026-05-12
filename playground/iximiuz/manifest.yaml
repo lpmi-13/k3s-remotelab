@@ -19,17 +19,20 @@ playground:
           welcome: |
             This lab opens after the first GitOps failure has already been injected and detected by ArgoCD.
 
+            Click the icon to open the argocd web UI in a new tab (it's the box with the arrow in the argcd tab).
+
             Public tabs:
             - argocd
-            - gitea
 
             Credentials:
             - ArgoCD: admin / remotelab
-            - Gitea: remotelab / remotelab
 
             Useful local endpoints from the terminal:
-            - http://127.0.0.1:30080
-            - http://127.0.0.1:30082
+            - ArgoCD: http://127.0.0.1:30080
+            - Gitea:  http://127.0.0.1:30082
+
+            Clone the lab repo to fix scenarios that need a git push:
+              git clone http://remotelab:remotelab@127.0.0.1:30082/remotelab/django-app.git
       drives:
         - source: oci://ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v3
           mount: /
@@ -42,17 +45,15 @@ playground:
         cpuCount: 4
         ramSize: 8GiB
   tabs:
+    - id: terminal-cplane-01
+      kind: terminal
+      name: cplane-01
+      machine: cplane-01
     - id: http-port-argocd
       kind: http-port
       name: argocd
       machine: cplane-01
       number: 30080
-      access: public
-    - id: http-port-gitea
-      kind: http-port
-      name: gitea
-      machine: cplane-01
-      number: 30082
       access: public
   initTasks:
     init_cplane_01_1:
