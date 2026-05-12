@@ -195,7 +195,6 @@ tmp/
 Thumbs.db
 
 # Docker
-.dockerignore
 docker-compose.override.yml
 
 # Kubernetes

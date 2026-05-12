@@ -22,7 +22,7 @@ spec:
       restartPolicy: OnFailure
       initContainers:
       - name: wait-for-db
-        image: postgres:15
+        image: postgres:16
         env:
         - name: PGHOST
           value: {{ .Values.env.DB_HOST | quote }}

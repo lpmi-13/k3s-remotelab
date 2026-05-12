@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${repo_root}"
+source "${repo_root}/scripts/lib/versions.sh"
+
+app_image_tag="${IMAGE_TAG:-${DEFAULT_FIRST_PARTY_IMAGE_TAG}}"
+rootfs_image="${ROOTFS_IMAGE:-${ROOTFS_IMAGE_REPO}:${app_image_tag}}"
+rootfs_release="${ROOTFS_RELEASE:-${DEFAULT_IXIMIUZ_ROOTFS_RELEASE}}"
+build_images="${BUILD_IMAGES:-1}"
+pull_runtime_images="${PULL_RUNTIME_IMAGES:-1}"
+push_images="${PUSH_IMAGES:-0}"
+push_rootfs_image="${PUSH_ROOTFS_IMAGE:-${PUSH_IMAGE:-${push_images}}}"
+
+scenario_controller_image="${SCENARIO_CONTROLLER_IMAGE_REPO}:${app_image_tag}"
+argocd_tools_image="${ARGOCD_TOOLS_IMAGE_REPO}:${app_image_tag}"
+django_image="${DJANGO_IMAGE_REPO}:${app_image_tag}"
+
+runtime_images=(
+  "${POSTGRES_IMAGE}"
+  "${GITEA_IMAGE}"
+  "${GITEA_ADMIN_IMAGE}"
+  "${BUSYBOX_IMAGE}"
+)
+
+first_party_images=(
+  "${scenario_controller_image}"
+  "${argocd_tools_image}"
+  "${django_image}"
+)
+
+ensure_image() {
+  local image="$1"
+
+  if ! docker image inspect "${image}" >/dev/null 2>&1; then
+    echo "error: Docker image ${image} does not exist." >&2
+    exit 1
+  fi
+}
+
+pull_if_missing() {
+  local image="$1"
+
+  if docker image inspect "${image}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "Pulling ${image}..."
+  docker pull "${image}"
+}
+
+copy_dir() {
+  local source="$1"
+  local destination_parent="$2"
+
+  mkdir -p "${destination_parent}"
+  cp -R "${source}" "${destination_parent}/"
+}
+
+manifest_images() {
+  local manifest="$1"
+
+  test -f "${manifest}" || { echo "error: missing manifest ${manifest}." >&2; exit 1; }
+
+  awk '
+    /^[[:space:]]*image:[[:space:]]*/ {
+      image = $0
+      sub(/^[[:space:]]*image:[[:space:]]*/, "", image)
+      sub(/[[:space:]]+#.*$/, "", image)
+      gsub(/"/, "", image)
+      gsub(/\047/, "", image)
+      if (image != "") print image
+    }
+  ' "${manifest}" | sort -u
+}
+
+unique_images() {
+  local image
+  declare -A seen=()
+
+  for image in "$@"; do
+    [[ -n "${image}" ]] || continue
+    if [[ -z "${seen[$image]+x}" ]]; then
+      seen["${image}"]=1
+      printf '%s\n' "${image}"
+    fi
+  done
+}
+
+mapfile -t argocd_install_images < <(manifest_images "${repo_root}/manifests/gitops/argocd-install.yaml")
+mapfile -t runtime_images < <(unique_images "${runtime_images[@]}" "${argocd_install_images[@]}")
+
+if [[ "${build_images}" != "0" ]]; then
+  echo "Building ${scenario_controller_image}..."
+  docker build -t "${scenario_controller_image}" "${repo_root}/scenario-controller"
+
+  echo "Building ${argocd_tools_image}..."
+  docker build -t "${argocd_tools_image}" "${repo_root}/docker/argocd-tools"
+
+  echo "Building ${django_image}..."
+  docker build -t "${django_image}" "${repo_root}/sample-django-app"
+fi
+
+if [[ "${pull_runtime_images}" != "0" ]]; then
+  for image in "${runtime_images[@]}"; do
+    pull_if_missing "${image}"
+  done
+  if [[ "${build_images}" == "0" ]]; then
+    for image in "${first_party_images[@]}"; do
+      pull_if_missing "${image}"
+    done
+  fi
+fi
+
+for image in "${first_party_images[@]}" "${runtime_images[@]}"; do
+  ensure_image "${image}"
+done
+
+if [[ "${push_images}" != "0" ]]; then
+  for image in "${first_party_images[@]}"; do
+    echo "Pushing ${image}..."
+    docker push "${image}"
+  done
+fi
+
+build_context="$(mktemp -d /tmp/argo-remotelab-rootfs-build.XXXXXX)"
+trap 'rm -rf "${build_context}"' EXIT
+
+mkdir -p "${build_context}/playground/iximiuz"
+cp "${repo_root}/playground/iximiuz/Dockerfile" "${build_context}/Dockerfile"
+copy_dir "${repo_root}/argocd-apps" "${build_context}"
+copy_dir "${repo_root}/docker" "${build_context}"
+copy_dir "${repo_root}/manifests" "${build_context}"
+copy_dir "${repo_root}/playground" "${build_context}"
+copy_dir "${repo_root}/sample-django-app" "${build_context}"
+copy_dir "${repo_root}/scenario-controller" "${build_context}"
+copy_dir "${repo_root}/scripts" "${build_context}"
+
+echo "Syncing copied manifests to image tag ${app_image_tag}..."
+bash "${repo_root}/scripts/update-version-refs.sh" \
+  --repo-root "${build_context}" \
+  --app-image-tag "${app_image_tag}"
+
+echo "Saving Kubernetes images into the rootfs build context..."
+docker save -o "${build_context}/playground/iximiuz/k3s-images.tar" \
+  "${first_party_images[@]}" \
+  "${runtime_images[@]}"
+
+echo "Building ${rootfs_image}..."
+docker build \
+  --build-arg ROOTFS_RELEASE="${rootfs_release}" \
+  -t "${rootfs_image}" \
+  "${build_context}"
+
+if [[ "${push_rootfs_image}" != "0" ]]; then
+  echo "Pushing ${rootfs_image}..."
+  docker push "${rootfs_image}"
+fi
+
+echo "Updating checked-in version references..."
+bash "${repo_root}/scripts/update-version-refs.sh" \
+  --app-image-tag "${app_image_tag}" \
+  --rootfs-image "${rootfs_image}"
+
+echo
+echo "Built rootfs image ${rootfs_image}"
+if [[ "${push_rootfs_image}" != "0" ]]; then
+  echo "Pushed ${rootfs_image}"
+fi

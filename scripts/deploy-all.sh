@@ -4,12 +4,15 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "${SCRIPT_DIR}/lib/platform.sh"
+source "${SCRIPT_DIR}/lib/versions.sh"
 
 TRAEFIK_CRD_DEFINITIONS_URL="https://raw.githubusercontent.com/traefik/traefik/v3.5/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml"
 ARGOCD_ADMIN_PASSWORD="remotelab"
 # bcrypt hash for ARGOCD_ADMIN_PASSWORD. ArgoCD stores the admin password hash
 # in argocd-secret rather than the generated initial-admin secret.
 ARGOCD_ADMIN_PASSWORD_HASH='$2a$10$53xm8W5NWtQbIe2oMGQlheoTFSxh4El7pz1Mdf3NHiRGdund2oPya'
+IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_FIRST_PARTY_IMAGE_TAG}}"
+SCENARIO_CONTROLLER_IMAGE="${SCENARIO_CONTROLLER_IMAGE_REPO}:${IMAGE_TAG}"
 
 show_help() {
     echo "Usage: ./deploy-all.sh [OPTIONS]"
@@ -607,17 +610,17 @@ echo ""
 # --- Build Scenario Controller Image ---
 echo "Step 14: Building Scenario Controller image..."
 if [[ "$OS" == "Darwin" ]]; then
-    colima nerdctl -- build -t ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest \
+    colima nerdctl -- build -t "$SCENARIO_CONTROLLER_IMAGE" \
         --namespace k8s.io "$REPO_DIR/scenario-controller" 2>&1 | tail -3
 else
     # On Linux with k3s, use ctr to import
     if command -v nerdctl &>/dev/null; then
-        nerdctl build -t ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest \
+        nerdctl build -t "$SCENARIO_CONTROLLER_IMAGE" \
             --namespace k8s.io "$REPO_DIR/scenario-controller"
     else
         # Fallback: build with docker and import
-        docker build -t ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest "$REPO_DIR/scenario-controller"
-        docker save ghcr.io/lpmi-13/argo-remotelab-scenario-controller:latest | sudo k3s ctr images import -
+        docker build -t "$SCENARIO_CONTROLLER_IMAGE" "$REPO_DIR/scenario-controller"
+        docker save "$SCENARIO_CONTROLLER_IMAGE" | sudo k3s ctr images import -
     fi
 fi
 echo "  OK: Scenario controller image built"
@@ -626,6 +629,7 @@ echo ""
 # --- Deploy Scenario Controller ---
 echo "Step 15: Deploying Scenario Controller..."
 kubectl apply -f "$REPO_DIR/manifests/applications/scenario-controller.yaml"
+kubectl set image deployment/scenario-controller -n applications controller="$SCENARIO_CONTROLLER_IMAGE" >/dev/null
 kubectl rollout restart deployment/scenario-controller -n applications >/dev/null
 kubectl rollout status deployment/scenario-controller -n applications --timeout=180s
 echo "  OK: Scenario controller deployed with the latest local image (will start injecting failures after app is healthy)"

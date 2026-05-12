@@ -55,12 +55,12 @@ environment variable name.
 
 - **ArgoCD** - GitOps controller, syncs Helm chart from Gitea to cluster
 - **Gitea** - Local Git server (no CI, no registry, git-only)
-- **Django** - Target application (pre-built image from GHCR)
+- **Django** - Target application image built locally or published to GHCR
 - **Scenario Controller** - Go binary that injects failures and monitors recovery
 - **SOPS/age** - Secrets encryption (helm-secrets plugin on ArgoCD repo-server)
 - **Traefik** - Ingress controller with path-based routing
 
-## Quick Start
+## Run Locally After Cloning
 
 ### Prerequisites
 
@@ -75,10 +75,12 @@ environment variable name.
 On Linux, you need k3s installed directly (no Colima needed), plus `age`, `sops`, and `helm`.
 Initial Linux setup needs `sudo` for k3s installation and may prompt again during `deploy-all.sh` if the script has to repair `/etc/rancher/k3s/config.yaml`, restart k3s, or import the locally built scenario-controller image into k3s containerd. Normal lab use after deployment is through `kubectl`, ArgoCD, and git access to the internal Gitea service and does not require `sudo`.
 
-### Deploy
+### Clone And Deploy
 
 ```bash
-./scripts/deploy-all.sh
+git clone https://github.com/lpmi-13/argo-remotelab.git
+cd argo-remotelab
+bash scripts/deploy-all.sh
 ```
 
 This takes about 5-10 minutes and:
@@ -91,7 +93,7 @@ This takes about 5-10 minutes and:
 7. Builds and deploys the scenario controller
 8. Waits for everything to be healthy
 
-### Access
+### Local Access
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
@@ -102,10 +104,10 @@ Accept the self-signed certificate warning in your browser.
 The deploy script patches ArgoCD's admin password to `remotelab` directly and
 restarts `argocd-server`; deployment fails if that password cannot be applied.
 
-### Cleanup
+### Local Cleanup
 
 ```bash
-./scripts/cleanup-all.sh
+bash scripts/cleanup-all.sh
 ```
 
 ## Workflow
@@ -205,6 +207,8 @@ Then it waits another random interval before injecting the next failure.
 │   ├── gitops/                # Pinned ArgoCD install, SOPS setup, ingress
 │   └── infrastructure/        # Traefik ingress rules
 ├── sample-django-app/
+│   ├── app/                   # Django runtime image source
+│   ├── Dockerfile             # Runtime image build
 │   └── chart/django-app/      # Helm chart (pushed to Gitea at deploy)
 │       ├── templates/         # Deployment, Service, ConfigMap, Job
 │       ├── values.yaml        # App configuration
@@ -217,8 +221,12 @@ Then it waits another random interval before injecting the next failure.
 │   └── Dockerfile             # Multi-stage build
 ├── scripts/
 │   ├── deploy-all.sh          # Full deployment script
+│   ├── deploy-preloaded-vm.sh # iximiuz/preloaded VM deployment path
+│   ├── build-rootfs-image.sh  # Build iximiuz rootfs image
 │   ├── cleanup-all.sh         # Teardown script
+│   ├── update-version-refs.sh # Keep image tag references aligned
 │   └── lib/platform.sh        # Platform detection utilities
+├── playground/iximiuz/        # iximiuz manifest, rootfs Dockerfile, bootstrap unit
 └── secrets/keys/              # Generated age keys (gitignored)
 ```
 
@@ -248,6 +256,55 @@ sudo apt install age
 ```
 
 The privileged Linux steps are mostly host setup: k3s installation, occasional k3s advertised-IP repair if your host IP changes, and local image import when Docker is used as the fallback builder. If `nerdctl` is installed and can build into the k3s/containerd namespace, `deploy-all.sh` can avoid the Docker `save | sudo k3s ctr images import` fallback. Re-running the lab after it is deployed should only require unprivileged `kubectl` commands unless you rebuild/redeploy the controller image or reset k3s.
+
+## Build, Push, And Publish
+
+The iximiuz path bakes the lab files and required container images into a k3s-capable rootfs image. The bootstrap unit imports the image archive into k3s containerd, runs `scripts/deploy-preloaded-vm.sh`, and only lets the playground init task finish after the first scenario has been injected and detected by ArgoCD.
+
+This path requires Docker, GHCR push access, and `labctl`.
+
+Pick one version tag — `IMAGE_TAG` is applied to both the app images and the rootfs image:
+
+```bash
+export IMAGE_TAG=v2
+
+docker login ghcr.io
+PUSH_IMAGES=1 bash scripts/build-rootfs-image.sh
+```
+
+The build script creates/pushes:
+- `ghcr.io/lpmi-13/argo-remotelab-scenario-controller:${IMAGE_TAG}`
+- `ghcr.io/lpmi-13/argo-remotelab-argocd-tools:${IMAGE_TAG}`
+- `ghcr.io/lpmi-13/argo-remotelab-django:${IMAGE_TAG}`
+- `ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:${IMAGE_TAG}`
+
+Set `ROOTFS_IMAGE` only if you need to push the rootfs to a different registry or repo than the default.
+
+After a successful build, the script also rewrites `playground/iximiuz/manifest.yaml` so its rootfs drive points at the new `oci://...` reference. Verify that before publishing the playground:
+
+```bash
+grep -n "source: oci://" playground/iximiuz/manifest.yaml
+```
+
+Create or update the iximiuz custom playground from that manifest:
+
+```bash
+labctl auth login
+
+# First publish
+labctl playground create argo-remotelab-3bf4e8fb \
+  --base flexbox \
+  --file playground/iximiuz/manifest.yaml
+
+# Later updates
+labctl playground update argo-remotelab-3bf4e8fb \
+  --file playground/iximiuz/manifest.yaml \
+  --force
+```
+
+> The above UUIDs (ie, `3bf4e8fb` at the end of the playground name are autogenerated by the system so are included above for reference, but if you create one, they will be different.
+
+Start it from iximiuz or with `labctl playground start argo-remotelab-3bf4e8fb`. The ArgoCD tab should not become ready until the init task sees the first injected failure marker inside the VM.
 
 ## Configuration
 

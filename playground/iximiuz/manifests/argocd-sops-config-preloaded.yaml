@@ -1,0 +1,69 @@
+# ArgoCD SOPS Configuration for the preloaded iximiuz VM.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  helm.valuesFileSchemes: >-
+    secrets+gpg-import, secrets+gpg-import-kubernetes,
+    secrets+age-import, secrets+age-import-kubernetes,
+    secrets, secrets+literal,
+    https, http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-repo-server
+  namespace: argocd
+spec:
+  template:
+    spec:
+      initContainers:
+      - name: install-helm-secrets
+        image: ghcr.io/lpmi-13/argo-remotelab-argocd-tools:v1
+        imagePullPolicy: IfNotPresent
+        command:
+        - sh
+        - -c
+        - |
+          set -e
+          cp -R /opt/argocd-tools/helm-plugins/. /custom-tools/
+          cp /opt/argocd-tools/bin/sops /opt/argocd-tools/bin/age /opt/argocd-tools/bin/age-keygen /sops-bin/
+        volumeMounts:
+        - name: custom-tools
+          mountPath: /custom-tools
+        - name: sops-bin
+          mountPath: /sops-bin
+
+      containers:
+      - name: argocd-repo-server
+        env:
+        - name: SOPS_AGE_KEY_FILE
+          value: /sops-age-key/key.txt
+        - name: HELM_PLUGINS
+          value: /custom-tools
+        - name: PATH
+          value: /custom-tools:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+        - name: HELM_SECRETS_SOPS_PATH
+          value: /usr/local/sbin/sops
+        volumeMounts:
+        - name: sops-age-key
+          mountPath: /sops-age-key
+          readOnly: true
+        - name: custom-tools
+          mountPath: /custom-tools
+          readOnly: true
+        - name: sops-bin
+          mountPath: /usr/local/sbin
+          readOnly: true
+
+      volumes:
+      - name: sops-age-key
+        secret:
+          secretName: sops-age-key
+      - name: custom-tools
+        emptyDir: {}
+      - name: sops-bin
+        emptyDir: {}

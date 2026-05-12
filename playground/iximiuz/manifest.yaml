@@ -1,0 +1,75 @@
+kind: playground
+name: argo-remotelab-3bf4e8fb
+base: flexbox
+title: Argo RemoteLab
+description: Diagnose ArgoCD and SOPS GitOps failures in a preloaded k3s VM.
+categories:
+  - kubernetes
+  - ci-cd
+playground:
+  networks:
+    - name: local
+      subnet: 172.16.0.0/24
+  machines:
+    - name: cplane-01
+      users:
+        - name: root
+        - name: laborant
+          default: true
+          welcome: |
+            This lab opens after the first GitOps failure has already been injected and detected by ArgoCD.
+
+            Public tabs:
+            - argocd
+            - gitea
+
+            Credentials:
+            - ArgoCD: admin / remotelab
+            - Gitea: remotelab / remotelab
+
+            Useful local endpoints from the terminal:
+            - http://127.0.0.1:30080
+            - http://127.0.0.1:30082
+      drives:
+        - source: oci://ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v1
+          mount: /
+          size: 30GiB
+      network:
+        interfaces:
+          - address: 172.16.0.2/24
+            network: local
+      resources:
+        cpuCount: 4
+        ramSize: 8GiB
+  tabs:
+    - id: http-port-argocd
+      kind: http-port
+      name: argocd
+      machine: cplane-01
+      number: 30080
+      access: public
+    - id: http-port-gitea
+      kind: http-port
+      name: gitea
+      machine: cplane-01
+      number: 30082
+      access: public
+  initTasks:
+    init_cplane_01_1:
+      name: init_cplane_01_1
+      machine: cplane-01
+      init: true
+      user: root
+      timeout_seconds: 900
+      run: |-
+        #!/bin/bash
+        set -euo pipefail
+
+        FIRST_SCENARIO_TIMEOUT_SECONDS=840 /opt/argo-remotelab/scripts/wait-first-scenario-ready.sh
+  accessControl:
+    canList:
+      - owner
+    canRead:
+      - owner
+    canStart:
+      - owner
