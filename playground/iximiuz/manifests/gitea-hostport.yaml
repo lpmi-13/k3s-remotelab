@@ -4,6 +4,9 @@ metadata:
   name: gitea
   namespace: applications
 spec:
+  strategy:
+    type: Recreate
+    rollingUpdate: null
   template:
     spec:
       containers:

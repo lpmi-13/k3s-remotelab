@@ -31,7 +31,7 @@ playground:
             - http://127.0.0.1:30080
             - http://127.0.0.1:30082
       drives:
-        - source: oci://ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v1
+        - source: oci://ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v2
           mount: /
           size: 30GiB
       network:

@@ -4,6 +4,9 @@ metadata:
   name: argocd-server
   namespace: argocd
 spec:
+  strategy:
+    type: Recreate
+    rollingUpdate: null
   template:
     spec:
       containers:
