@@ -316,6 +316,7 @@ The scenario controller is configured via environment variables in `manifests/ap
 |----------|---------|-------------|
 | `MIN_DELAY_SECONDS` | 0 | Minimum wait (seconds) between healthy detection and injection |
 | `MAX_DELAY_SECONDS` | 0 | Maximum wait (seconds) before injection (0 = inject immediately) |
+| `FIRST_SCENARIO` | sops-decrypt-failure,hmac-mismatch,wrong-type-sops | Comma-separated pool the very first injection is picked from at random; later runs are fully random. Empty = always random. The default lists the three render-time SOPS failures, which all detect within seconds of the next ArgoCD refresh. |
 | `ARGOCD_APP_NAME` | django-app | ArgoCD Application to monitor |
 | `GITEA_URL` | http://gitea... | Internal Gitea service URL |
 

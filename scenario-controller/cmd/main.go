@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -64,6 +65,12 @@ func main() {
 	registry.Register(&scenarios.StuckSync{})
 	registry.Register(&scenarios.StaleJob{})
 	registry.Register(&scenarios.OrphanedResource{})
+
+	if first := os.Getenv("FIRST_SCENARIO"); first != "" {
+		pool := splitAndTrim(first, ",")
+		registry.SetFirstScenarios(pool)
+		log.Printf("first scenario picked from pool %v (subsequent runs are random)", pool)
+	}
 
 	log.Printf("registered %d scenarios: %v", registry.Count(), registry.Names())
 
@@ -245,6 +252,18 @@ func requireEnv(key string) string {
 		log.Fatalf("required environment variable %s is not set", key)
 	}
 	return val
+}
+
+// splitAndTrim splits s on sep and returns non-empty trimmed parts.
+func splitAndTrim(s, sep string) []string {
+	parts := strings.Split(s, sep)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // envInt reads an integer environment variable with a default fallback.

@@ -32,9 +32,19 @@ type Scenario interface {
 
 // Registry holds all registered scenarios and provides random selection.
 type Registry struct {
-	scenarios []Scenario
-	queue     []Scenario
-	lastName  string
+	scenarios       []Scenario
+	queue           []Scenario
+	lastName        string
+	firstPool       []string
+	servedScenario  bool
+}
+
+// SetFirstScenarios constrains the very first call to Random to pick from the
+// supplied pool of scenario names. Subsequent calls fall back to the normal
+// shuffled-queue rotation. Names not matching any registered scenario are
+// silently skipped; an empty pool opts out entirely.
+func (r *Registry) SetFirstScenarios(names []string) {
+	r.firstPool = names
 }
 
 // NewRegistry creates a new empty scenario registry.
@@ -50,9 +60,21 @@ func (r *Registry) Register(s Scenario) {
 
 // Random selects and returns a scenario from a shuffled queue. Each registered
 // scenario is returned once before the queue is shuffled again.
+//
+// The very first call honours SetFirstScenarios when configured, so labs can
+// pin a pool of fast-to-detect failures for the initial run and reduce
+// startup latency.
 func (r *Registry) Random() Scenario {
 	if len(r.scenarios) == 0 {
 		panic("no scenarios registered")
+	}
+
+	if !r.servedScenario {
+		if scenario := r.pickFromFirstPool(); scenario != nil {
+			r.servedScenario = true
+			r.lastName = scenario.Name()
+			return scenario
+		}
 	}
 
 	if len(r.queue) == 0 {
@@ -62,7 +84,28 @@ func (r *Registry) Random() Scenario {
 	scenario := r.queue[0]
 	r.queue = r.queue[1:]
 	r.lastName = scenario.Name()
+	r.servedScenario = true
 	return scenario
+}
+
+func (r *Registry) pickFromFirstPool() Scenario {
+	if len(r.firstPool) == 0 {
+		return nil
+	}
+
+	var matched []Scenario
+	for _, name := range r.firstPool {
+		for _, s := range r.scenarios {
+			if s.Name() == name {
+				matched = append(matched, s)
+				break
+			}
+		}
+	}
+	if len(matched) == 0 {
+		return nil
+	}
+	return matched[rand.Intn(len(matched))]
 }
 
 // Count returns the number of registered scenarios.

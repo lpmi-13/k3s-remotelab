@@ -34,7 +34,7 @@ playground:
             Clone the lab repo to fix scenarios that need a git push:
               git clone http://remotelab:remotelab@127.0.0.1:30082/remotelab/django-app.git
       drives:
-        - source: oci://ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v3
+        - source: oci://ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v4
           mount: /
           size: 30GiB
       network:
