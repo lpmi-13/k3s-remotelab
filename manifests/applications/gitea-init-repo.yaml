@@ -53,7 +53,7 @@ spec:
           apk add --no-cache git curl jq
 
           # Install sops and age
-          wget -qO /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v3.8.1/sops-v3.8.1.linux.amd64
+          wget -qO /usr/local/bin/sops https://github.com/getsops/sops/releases/download/v3.13.0/sops-v3.13.0.linux.amd64
           chmod +x /usr/local/bin/sops
           wget -qO- https://github.com/FiloSottile/age/releases/download/v1.1.1/age-v1.1.1-linux-amd64.tar.gz | tar xz -C /tmp
           mv /tmp/age/age /usr/local/bin/

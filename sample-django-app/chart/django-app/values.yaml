@@ -1,7 +1,7 @@
 image:
   registry: ghcr.io
   repository: lpmi-13/argo-remotelab-django
-  tag: v2
+  tag: v3
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
