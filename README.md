@@ -286,6 +286,8 @@ After a successful build, the script also rewrites `playground/iximiuz/manifest.
 grep -n "source: oci://" playground/iximiuz/manifest.yaml
 ```
 
+> NB: you will also need to update the visibility of the images in your packages settings to `public` so that the iximiuz platform can actually pull them.
+
 Create or update the iximiuz custom playground from that manifest:
 
 ```bash
