@@ -127,14 +127,12 @@ fi
 build_context="$(mktemp -d /tmp/argo-remotelab-rootfs-build.XXXXXX)"
 trap 'rm -rf "${build_context}"' EXIT
 
-mkdir -p "${build_context}/playground/iximiuz"
+mkdir -p "${build_context}/playground/iximiuz" "${build_context}/sample-django-app"
 cp "${repo_root}/playground/iximiuz/Dockerfile" "${build_context}/Dockerfile"
 copy_dir "${repo_root}/argocd-apps" "${build_context}"
-copy_dir "${repo_root}/docker" "${build_context}"
 copy_dir "${repo_root}/manifests" "${build_context}"
 copy_dir "${repo_root}/playground" "${build_context}"
-copy_dir "${repo_root}/sample-django-app" "${build_context}"
-copy_dir "${repo_root}/scenario-controller" "${build_context}"
+copy_dir "${repo_root}/sample-django-app/chart" "${build_context}/sample-django-app"
 copy_dir "${repo_root}/scripts" "${build_context}"
 
 echo "Syncing copied manifests to image tag ${app_image_tag}..."

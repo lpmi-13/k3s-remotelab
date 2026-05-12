@@ -11,13 +11,10 @@ USER root
 ENV HOME=/root
 
 COPY argocd-apps /opt/argo-remotelab/argocd-apps
-COPY docker /opt/argo-remotelab/docker
 COPY manifests /opt/argo-remotelab/manifests
 COPY playground/iximiuz /opt/argo-remotelab/playground/iximiuz
-COPY sample-django-app /opt/argo-remotelab/sample-django-app
-COPY scenario-controller /opt/argo-remotelab/scenario-controller
+COPY sample-django-app/chart /opt/argo-remotelab/sample-django-app/chart
 COPY scripts /opt/argo-remotelab/scripts
-COPY playground/iximiuz/k3s-images.tar /opt/argo-remotelab/playground/iximiuz/k3s-images.tar
 COPY playground/iximiuz/image/bootstrap-gitops-lab.sh /opt/iximiuz-labs/bootstrap-gitops-lab.sh
 COPY playground/iximiuz/image/gitops-lab-bootstrap.service /etc/systemd/system/gitops-lab-bootstrap.service
 
