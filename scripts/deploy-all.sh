@@ -13,6 +13,8 @@ ARGOCD_ADMIN_PASSWORD="remotelab"
 ARGOCD_ADMIN_PASSWORD_HASH='$2a$10$53xm8W5NWtQbIe2oMGQlheoTFSxh4El7pz1Mdf3NHiRGdund2oPya'
 IMAGE_TAG="${IMAGE_TAG:-${DEFAULT_FIRST_PARTY_IMAGE_TAG}}"
 SCENARIO_CONTROLLER_IMAGE="${SCENARIO_CONTROLLER_IMAGE_REPO}:${IMAGE_TAG}"
+GITEA_LOCAL_URL="http://localhost:3000"
+GITEA_PORT_FORWARD_LOG="/tmp/argo-remotelab-gitea-pf.log"
 
 show_help() {
     echo "Usage: ./deploy-all.sh [OPTIONS]"
@@ -42,6 +44,47 @@ run_privileged() {
     else
         sudo "$@"
     fi
+}
+
+stop_gitea_port_forward() {
+    local pid
+    while read -r pid; do
+        [ -n "$pid" ] && kill "$pid" 2>/dev/null || true
+    done < <(ps -eo pid=,comm=,args= | awk '$2 == "kubectl" && /port-forward/ && /gitea/ && /3000:3000/ {print $1}')
+}
+
+print_gitea_port_forward_log() {
+    if [ -s "$GITEA_PORT_FORWARD_LOG" ]; then
+        echo "  Port-forward log ($GITEA_PORT_FORWARD_LOG):"
+        sed -n '1,120p' "$GITEA_PORT_FORWARD_LOG" | sed 's/^/    /'
+    else
+        echo "  Port-forward log is empty: $GITEA_PORT_FORWARD_LOG"
+    fi
+}
+
+wait_for_gitea_port_forward() {
+    local pf_pid="$1"
+    local waited=0
+    local max_wait=30
+
+    while [ $waited -lt $max_wait ]; do
+        if curl -fsS "${GITEA_LOCAL_URL}/api/healthz" >/dev/null 2>&1; then
+            return 0
+        fi
+
+        if ! kill -0 "$pf_pid" 2>/dev/null; then
+            echo "  ERROR: Gitea port-forward exited before the API became reachable"
+            print_gitea_port_forward_log
+            exit 1
+        fi
+
+        sleep 1
+        waited=$((waited + 1))
+    done
+
+    echo "  ERROR: Gitea API did not become reachable at ${GITEA_LOCAL_URL} after ${max_wait}s"
+    print_gitea_port_forward_log
+    exit 1
 }
 
 get_k3s_node_internal_ip() {
@@ -510,28 +553,42 @@ fi
 # Port-forward to Gitea for direct git access. Kept alive past script exit
 # so the user can clone/push against http://localhost:3000 without restarting it.
 # cleanup-all.sh removes it; re-running deploy-all.sh replaces it.
-pkill -f "kubectl port-forward svc/gitea .* 3000:3000" 2>/dev/null || true
+stop_gitea_port_forward
+rm -f "$GITEA_PORT_FORWARD_LOG"
 nohup kubectl port-forward svc/gitea -n applications 3000:3000 \
-    >/tmp/argo-remotelab-gitea-pf.log 2>&1 &
+    >"$GITEA_PORT_FORWARD_LOG" 2>&1 &
 PF_PID=$!
 disown "$PF_PID"
-sleep 3
+wait_for_gitea_port_forward "$PF_PID"
+echo "  OK: Gitea API reachable at ${GITEA_LOCAL_URL}"
 
 # Create repo via API
-REPO_CHECK=$(curl -s -o /dev/null -w "%{http_code}" \
+REPO_CHECK=$(curl -sS -o /dev/null -w "%{http_code}" \
     -u "remotelab:remotelab" \
-    "http://localhost:3000/api/v1/repos/remotelab/django-app")
+    "${GITEA_LOCAL_URL}/api/v1/repos/remotelab/django-app" || true)
+
+if [[ "$REPO_CHECK" != "200" && "$REPO_CHECK" != "404" ]]; then
+    echo "  ERROR: Could not query Django app repo in Gitea (HTTP ${REPO_CHECK:-unknown})"
+    print_gitea_port_forward_log
+    exit 1
+fi
 
 if [ "$REPO_CHECK" = "200" ]; then
-    curl -s -X DELETE "http://localhost:3000/api/v1/repos/remotelab/django-app" \
-        -u "remotelab:remotelab" > /dev/null
+    if ! curl -fsS -X DELETE "${GITEA_LOCAL_URL}/api/v1/repos/remotelab/django-app" \
+        -u "remotelab:remotelab" > /dev/null; then
+        echo "  ERROR: Failed to delete existing Django app repo in Gitea"
+        exit 1
+    fi
     sleep 2
 fi
 
-curl -s -X POST "http://localhost:3000/api/v1/user/repos" \
+if ! curl -fsS -X POST "${GITEA_LOCAL_URL}/api/v1/user/repos" \
     -H "Content-Type: application/json" \
     -u "remotelab:remotelab" \
-    -d '{"name":"django-app","description":"Django app with Helm chart and SOPS secrets","private":false,"auto_init":true,"default_branch":"main"}' > /dev/null
+    -d '{"name":"django-app","description":"Django app with Helm chart and SOPS secrets","private":false,"auto_init":true,"default_branch":"main"}' > /dev/null; then
+    echo "  ERROR: Failed to create Django app repo in Gitea"
+    exit 1
+fi
 sleep 3
 
 # Prepare local chart for push
