@@ -255,8 +255,14 @@ if [[ "$OS" == "Darwin" ]]; then
 
         if [[ "$COLIMA_RUNTIME" == "containerd+k3s" ]]; then
             if [[ "$COLIMA_STATUS" == "Running" ]]; then
-                COLIMA_ACTION="none"
-                echo "  Colima already running with correct config (containerd+k3s)"
+                # Colima is running, but verify k3s is actually healthy
+                if kubectl cluster-info &>/dev/null; then
+                    COLIMA_ACTION="none"
+                    echo "  Colima already running with correct config (containerd+k3s)"
+                else
+                    echo "  Colima is running but k3s is not responding, restarting..."
+                    COLIMA_ACTION="restart"
+                fi
             else
                 COLIMA_ACTION="start"
                 echo "  Colima stopped but has correct config, starting..."
@@ -278,6 +284,17 @@ if [[ "$OS" == "Darwin" ]]; then
             echo "  Starting Colima with Kubernetes + containerd..."
             colima start --kubernetes --runtime containerd --cpu 4 --memory 6 --disk 60
             sleep 15
+            ;;
+        restart)
+            colima restart
+            sleep 15
+            # If k3s still isn't responding after restart, the kubeconfig may be
+            # stale (port changed) or k3s state may be corrupted. Reset k3s entirely.
+            if ! kubectl cluster-info &>/dev/null; then
+                echo "  k3s still not responding after restart, resetting Kubernetes..."
+                colima kubernetes reset
+                sleep 10
+            fi
             ;;
         start)
             colima start
