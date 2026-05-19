@@ -38,20 +38,35 @@ func (s *SopsDecryptFailure) Inject(gitClient *git.Client) error {
 				return fmt.Errorf("age encrypted data key block not found in %s", SecretsFile)
 			}
 
+			// Skip past the first line of base64 data (which encodes the age
+			// protocol header "age-encryption.org/v1") so that SOPS/age can
+			// still parse the envelope. Corrupt a byte on a later line so the
+			// error is clearly about decryption failure, not format parsing.
 			dataStart := markerIdx + len(marker)
+			// Skip leading whitespace on first data line
 			for dataStart < len(content) && (content[dataStart] == ' ' || content[dataStart] == '\t') {
 				dataStart++
 			}
-			if dataStart >= len(content) || content[dataStart] == '\n' {
+			// Advance past the first base64 line to reach the second line
+			newlineIdx := strings.IndexByte(content[dataStart:], '\n')
+			if newlineIdx == -1 {
 				return fmt.Errorf("age encrypted data key block is malformed in %s", SecretsFile)
+			}
+			corruptIdx := dataStart + newlineIdx + 1
+			// Skip leading whitespace on second line
+			for corruptIdx < len(content) && (content[corruptIdx] == ' ' || content[corruptIdx] == '\t') {
+				corruptIdx++
+			}
+			if corruptIdx >= len(content) || content[corruptIdx] == '\n' || content[corruptIdx] == '-' {
+				return fmt.Errorf("age encrypted data key block is too short in %s", SecretsFile)
 			}
 
 			replacement := byte('X')
-			if content[dataStart] == replacement {
+			if content[corruptIdx] == replacement {
 				replacement = 'Y'
 			}
 
-			modified := content[:dataStart] + string(replacement) + content[dataStart+1:]
+			modified := content[:corruptIdx] + string(replacement) + content[corruptIdx+1:]
 			return w.WriteFile(SecretsFile, []byte(modified))
 		},
 	)
