@@ -82,6 +82,7 @@ create_sops_key() {
     mkdir -p "$(dirname "${age_key_file}")"
     rm -f "${age_key_file}"
     age-keygen -o "${age_key_file}" >/dev/null 2>&1
+    chmod 644 "${age_key_file}"
     age_public_key="$(awk '/public key:/ {print $NF}' "${age_key_file}")"
 
     kubectl create secret generic sops-age-key \
