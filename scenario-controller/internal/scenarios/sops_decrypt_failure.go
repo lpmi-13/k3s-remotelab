@@ -88,8 +88,10 @@ func (s *SopsDecryptFailure) Explanation() string {
 	return "The age-encrypted SOPS data key in secrets.yaml.enc was corrupted. SOPS can " +
 		"still identify the file as encrypted, but it cannot decrypt the data key needed " +
 		"to read the secret values, so helm-secrets fails during ArgoCD manifest " +
-		"generation. The fix is to restore the encrypted file from git history or " +
-		"re-encrypt it with: sops --encrypt --age <public-key> secrets.yaml > secrets.yaml.enc"
+		"generation. The fix is to restore the encrypted file from git history, or " +
+		"recreate the known plaintext secrets and encrypt a fresh file with: " +
+		"sops --encrypt --age <public-key> --input-type yaml --output-type yaml " +
+		"secrets.yaml > secrets.yaml.enc"
 }
 
 func (s *SopsDecryptFailure) DiagnoseCommands() []string {

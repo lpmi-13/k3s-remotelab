@@ -17,8 +17,9 @@ A hands-on ArgoCD troubleshooting environment that randomly injects realistic Gi
 | Scenario | What Breaks | How to Fix |
 |----------|-------------|------------|
 | **Missing ConfigMap** | Deployment references a non-existent ConfigMap | Restore the ConfigMap reference |
-| **SOPS Decrypt Failure** | SOPS age data-key block corrupted in encrypted secrets file | Restore the encrypted file or re-encrypt it |
-| **HMAC Mismatch** | Ciphertext tampered without updating MAC | Re-encrypt the secrets file with valid data |
+| **SOPS Decrypt Failure** | SOPS age data-key block corrupted in encrypted secrets file | Restore the encrypted file or recreate it from known plaintext |
+| **SOPS Global MAC Mismatch** | Only the `sops.mac` metadata value is corrupted | Decrypt with `sops --ignore-mac`, then re-encrypt |
+| **HMAC Mismatch** | Encrypted secret value ciphertext is tampered | Restore or re-encrypt the secrets file from known-good plaintext |
 | **Wrong Type in SOPS** | Encrypted `secrets` value is randomized to a wrong shape | Re-encrypt the file with `secrets` as a valid env-var map |
 | **Stuck Sync** | Health check path changed to non-existent endpoint, pods never become Ready | Fix the health check path in values.yaml |
 | **Stale Job** | PreSync migration Job template changed so the hook fails before sync | Restore the migration Job command and re-sync |
@@ -162,15 +163,71 @@ cd /tmp/fix
 # Make your fix (e.g., restore values.yaml)
 vi chart/django-app/values.yaml
 
-# For SOPS-encrypted files, use sops to edit
+# For SOPS-encrypted YAML files, pass explicit input/output types because the
+# .enc suffix is otherwise ambiguous to sops.
 export SOPS_AGE_KEY_FILE=path/to/secrets/keys/local.key
-sops chart/django-app/secrets.yaml.enc
+sops --input-type yaml --output-type yaml chart/django-app/secrets.yaml.enc
 
 # Push the fix
 git add -A && git commit -m "fix: restore broken config" && git push
 ```
 
 ArgoCD will automatically detect the change and re-sync.
+
+#### SOPS Decrypt Failure
+
+If the scenario corrupted the age-encrypted SOPS data key, SOPS cannot recover
+the encrypted values from the broken file. Fix it either by restoring a known
+good encrypted version from Git history, or by recreating the plaintext and
+encrypting a fresh `secrets.yaml.enc`.
+
+The lab's original plaintext values are:
+
+```yaml
+secrets:
+  DB_PASSWORD: "remotelab"
+  SECRET_KEY: "django-production-secret-key-argo-remotelab-2024"
+  API_TOKEN: "tok_prod_abc123def456"
+```
+
+To re-encrypt from that plaintext:
+
+```bash
+cat > /tmp/remotelab-secrets.yaml <<'EOF'
+secrets:
+  DB_PASSWORD: "remotelab"
+  SECRET_KEY: "django-production-secret-key-argo-remotelab-2024"
+  API_TOKEN: "tok_prod_abc123def456"
+EOF
+
+LAB_REPO=/home/adam/projects/argo-remotelab
+export SOPS_AGE_KEY_FILE="$LAB_REPO/secrets/keys/local.key"
+age_public_key="$(age-keygen -y "$SOPS_AGE_KEY_FILE")"
+
+sops --encrypt --age "$age_public_key" \
+  --input-type yaml --output-type yaml \
+  /tmp/remotelab-secrets.yaml > chart/django-app/secrets.yaml.enc
+```
+
+#### SOPS Global MAC Mismatch
+
+If only the global `sops.mac` metadata is corrupted, the encrypted values and
+data key are still recoverable. In that case, decrypt with MAC verification
+disabled, inspect the plaintext, then re-encrypt it so SOPS writes a new MAC:
+
+```bash
+LAB_REPO=/home/adam/projects/argo-remotelab
+export SOPS_AGE_KEY_FILE="$LAB_REPO/secrets/keys/local.key"
+age_public_key="$(age-keygen -y "$SOPS_AGE_KEY_FILE")"
+
+sops --ignore-mac --decrypt \
+  --input-type yaml --output-type yaml \
+  chart/django-app/secrets.yaml.enc > /tmp/remotelab-secrets.yaml
+
+sops --encrypt --age "$age_public_key" \
+  --input-type yaml --output-type yaml \
+  /tmp/remotelab-secrets.yaml > chart/django-app/secrets.yaml.enc
+```
 
 For scenarios requiring resource deletion (stale Job, orphaned resources):
 - Use the ArgoCD UI to delete specific resources
@@ -189,7 +246,8 @@ The controller detects the app is healthy again and logs the explanation:
 application is Healthy and Synced again!
 === SCENARIO EXPLANATION: sops-decrypt-failure ===
 what happened: The age-encrypted SOPS data key in secrets.yaml.enc was corrupted...
-how to fix: Re-encrypt the file or restore the encrypted file from history...
+how to fix: Restore the encrypted file from history, or recreate secrets.yaml
+from the known lab plaintext and encrypt a fresh secrets.yaml.enc...
 diagnostic commands:
   $ kubectl get applications -n argocd django-app -o jsonpath='{.status.conditions}'
   $ kubectl logs -n argocd -l app.kubernetes.io/name=argocd-repo-server --tail=50
@@ -217,7 +275,7 @@ Then it waits another random interval before injecting the next failure.
 │   ├── cmd/main.go            # Main loop
 │   ├── internal/argocd/       # K8s dynamic client for Application CR
 │   ├── internal/git/          # Git clone/modify/push via os/exec
-│   ├── internal/scenarios/    # 7 scenario implementations
+│   ├── internal/scenarios/    # 8 scenario implementations
 │   └── Dockerfile             # Multi-stage build
 ├── scripts/
 │   ├── deploy-all.sh          # Full deployment script
@@ -316,7 +374,7 @@ The scenario controller is configured via environment variables in `manifests/ap
 |----------|---------|-------------|
 | `MIN_DELAY_SECONDS` | 0 | Minimum wait (seconds) between healthy detection and injection |
 | `MAX_DELAY_SECONDS` | 0 | Maximum wait (seconds) before injection (0 = inject immediately) |
-| `FIRST_SCENARIO` | sops-decrypt-failure,hmac-mismatch,wrong-type-sops | Comma-separated pool the very first injection is picked from at random; later runs are fully random. Empty = always random. The default lists the three render-time SOPS failures, which all detect within seconds of the next ArgoCD refresh. |
+| `FIRST_SCENARIO` | sops-decrypt-failure,sops-global-mac-mismatch,hmac-mismatch,wrong-type-sops | Comma-separated pool the very first injection is picked from at random; later runs are fully random. Empty = always random. The default lists the render-time SOPS failures, which all detect within seconds of the next ArgoCD refresh. |
 | `ARGOCD_APP_NAME` | django-app | ArgoCD Application to monitor |
 | `GITEA_URL` | http://gitea... | Internal Gitea service URL |
 

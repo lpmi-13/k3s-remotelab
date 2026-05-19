@@ -7,10 +7,9 @@ import (
 	"github.com/lpmi-13/argo-remotelab/scenario-controller/internal/git"
 )
 
-// HMACMismatch modifies the encrypted data bytes in the SOPS file without
-// updating the MAC (Message Authentication Code). This causes a MAC verification
-// failure when helm-secrets tries to decrypt the file, since the MAC no longer
-// matches the encrypted data.
+// HMACMismatch modifies encrypted secret value bytes in the SOPS file. This is
+// stricter than a global SOPS MAC mismatch: the damaged value cannot be
+// recovered with --ignore-mac because its AES-GCM authentication fails.
 type HMACMismatch struct{}
 
 func (s *HMACMismatch) Name() string {
@@ -18,8 +17,8 @@ func (s *HMACMismatch) Name() string {
 }
 
 func (s *HMACMismatch) Description() string {
-	return "Modifies encrypted data values in the SOPS file without updating the MAC, " +
-		"causing a MAC mismatch error during decryption."
+	return "Modifies encrypted secret value ciphertext in the SOPS file, causing " +
+		"per-value AES-GCM authentication failure during decryption."
 }
 
 func (s *HMACMismatch) Inject(gitClient *git.Client) error {
@@ -105,7 +104,8 @@ func flipBase64Byte(b byte) byte {
 }
 
 func (s *HMACMismatch) Revert(gitClient *git.Client) error {
-	// The user must re-encrypt the secrets file to fix the MAC.
+	// The user must restore or re-encrypt the secrets file from known-good
+	// plaintext to fix the damaged value ciphertext.
 	// After they fix it, revert is a no-op since the file should be valid.
 	return gitClient.CloneAndModify(
 		"chore: restore encrypted secrets integrity",
@@ -116,11 +116,10 @@ func (s *HMACMismatch) Revert(gitClient *git.Client) error {
 }
 
 func (s *HMACMismatch) Explanation() string {
-	return "The encrypted data bytes in secrets.yaml.enc were modified without updating the " +
-		"SOPS MAC (Message Authentication Code). SOPS uses an HMAC to verify that the encrypted " +
-		"data has not been tampered with. When the MAC does not match the data, decryption fails " +
-		"with a 'MAC mismatch' error. The fix is to re-encrypt the file with valid data using " +
-		"sops, which will recalculate the MAC."
+	return "Encrypted secret value bytes in secrets.yaml.enc were modified. This is not " +
+		"recoverable with sops --ignore-mac because the individual value ciphertext no " +
+		"longer passes AES-GCM authentication. The fix is to restore the encrypted file " +
+		"from history or re-encrypt secrets.yaml.enc from known-good plaintext."
 }
 
 func (s *HMACMismatch) DiagnoseCommands() []string {

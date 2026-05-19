@@ -60,6 +60,7 @@ func main() {
 	registry := scenarios.NewRegistry()
 	registry.Register(&scenarios.MissingConfigMap{})
 	registry.Register(&scenarios.SopsDecryptFailure{})
+	registry.Register(&scenarios.SopsGlobalMACMismatch{})
 	registry.Register(&scenarios.HMACMismatch{})
 	registry.Register(&scenarios.WrongTypeSops{})
 	registry.Register(&scenarios.StuckSync{})
