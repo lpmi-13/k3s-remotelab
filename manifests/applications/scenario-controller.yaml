@@ -7,6 +7,8 @@ metadata:
     app: scenario-controller
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: scenario-controller
@@ -38,7 +40,7 @@ spec:
         - name: MAX_DELAY_SECONDS
           value: "0"
         - name: FIRST_SCENARIO
-          value: "sops-decrypt-failure,hmac-mismatch,wrong-type-sops"
+          value: "sops-decrypt-failure,sops-global-mac-mismatch,hmac-mismatch,wrong-type-sops"
         - name: SOPS_AGE_KEY
           valueFrom:
             secretKeyRef:
