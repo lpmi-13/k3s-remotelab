@@ -19,17 +19,10 @@ playground:
           welcome: |
             This lab opens after the first GitOps failure has already been injected and detected by ArgoCD.
 
-            Click the icon to open the argocd web UI in a new tab (it's the box with the arrow in the argcd tab).
-
-            Public tabs:
-            - argocd
+            Click the tab to open the argocd web UI and diagnose the issue.
 
             Credentials:
             - ArgoCD: admin / remotelab
-
-            Useful local endpoints from the terminal:
-            - ArgoCD: http://127.0.0.1:30080
-            - Gitea:  http://127.0.0.1:30082
 
             Clone the lab repo to fix scenarios that need a git push:
               git clone http://remotelab:remotelab@127.0.0.1:30082/remotelab/django-app.git
