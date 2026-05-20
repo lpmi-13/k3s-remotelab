@@ -11,6 +11,9 @@ spec:
     spec:
       containers:
       - name: argocd-server
+        args:
+        - /usr/local/bin/argocd-server
+        - --content-security-policy=
         ports:
         - containerPort: 8080
           hostPort: 30080
