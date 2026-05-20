@@ -281,6 +281,7 @@ Then it waits another random interval before injecting the next failure.
 │   ├── deploy-all.sh          # Full deployment script
 │   ├── deploy-preloaded-vm.sh # iximiuz/preloaded VM deployment path
 │   ├── build-rootfs-image.sh  # Build iximiuz rootfs image
+│   ├── push-images.sh         # Push already-built GHCR images
 │   ├── cleanup-all.sh         # Teardown script
 │   ├── update-version-refs.sh # Keep image tag references aligned
 │   └── lib/platform.sh        # Platform detection utilities
@@ -324,10 +325,18 @@ This path requires Docker, GHCR push access, and `labctl`.
 Pick one version tag — `IMAGE_TAG` is applied to both the app images and the rootfs image:
 
 ```bash
-export IMAGE_TAG=v2
+export IMAGE_TAG=v6
 
 docker login ghcr.io
 PUSH_IMAGES=1 bash scripts/build-rootfs-image.sh
+```
+
+If the images are already built locally and only need to be pushed, log in to
+GHCR with an account/token that can write packages, then run:
+
+```bash
+docker login ghcr.io
+IMAGE_TAG=v6 bash scripts/push-images.sh
 ```
 
 The build script creates/pushes:

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-readonly DEFAULT_FIRST_PARTY_IMAGE_TAG="v4"
+readonly DEFAULT_FIRST_PARTY_IMAGE_TAG="v6"
 readonly ROOTFS_IMAGE_REPO="ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs"
-readonly DEFAULT_IXIMIUZ_ROOTFS_IMAGE="ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v4"
-readonly DEFAULT_IXIMIUZ_ROOTFS_RELEASE="e2771a49"
+readonly DEFAULT_IXIMIUZ_ROOTFS_IMAGE="ghcr.io/lpmi-13/argo-remotelab-k3s-rootfs:v6"
+readonly DEFAULT_IXIMIUZ_ROOTFS_RELEASE="e015d4ac.1"
 
 readonly DJANGO_IMAGE_REPO="ghcr.io/lpmi-13/argo-remotelab-django"
 readonly SCENARIO_CONTROLLER_IMAGE_REPO="ghcr.io/lpmi-13/argo-remotelab-scenario-controller"
